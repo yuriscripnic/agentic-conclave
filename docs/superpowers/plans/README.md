@@ -1,0 +1,44 @@
+# Agentic Conclave — Implementation Plan Roadmap
+
+This directory contains the executable implementation plans for the Agentic Conclave
+Multi-Agent RPG. Plans are derived from, and must not contradict:
+
+- `CLAUDE.md` — development rules (source-of-truth priority #3)
+- `docs/Agentic Conclave-Implementation Plan.md` — phase sequence (source-of-truth priority #4-ish, per its §29)
+- `docs/Agentic Conclave-architecture-overview.md` — architecture baseline
+
+## Plan series
+
+Each plan produces working, testable software on its own and follows the phase order
+mandated by the Implementation Plan document.
+
+| # | Plan file | Covers (Implementation Plan doc) | Status |
+|---|-----------|----------------------------------|--------|
+| 1 | `2026-09-03-deterministic-core-mvp0.md` | Phases 0–7 — Repository bootstrap, domain primitives, dice, checks, actions, combat, events, first playable CLI (**MVP-0**) | Written |
+| 2 | *persistence* | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Not written |
+| 3 | *model-gateway* | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Not written |
+| 4 | *character-agent* | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Not written |
+| 5 | *gm-agent* | Phase 13 — GM agent with narration + world tools behind the rules engine | Not written |
+| 6 | *multi-agent-party* | Phase 14 — dynamic party, agent scheduler, public party communication | Not written |
+| 7 | *memory* | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Not written |
+| 8 | *observability* | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Not written |
+| 9 | *evaluation* | Phase 18 — repeatable evaluation scenarios and metrics | Not written |
+| 10 | *web-api* | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Not written |
+| 11 | *web-ui* | Phase 20 — Web UI consuming the application/API layer | Not written |
+
+## Known documentation gaps (resolve before the corresponding plan)
+
+- The Implementation Plan references `docs/architecture/domain-model-and-api.md` for API
+  contracts, but the existing `docs/Agentic Conclave-domain-model-and-api.md` is a duplicate
+  of the architecture overview and contains **no** API/domain-model contracts. A real
+  contract document (endpoint schemas, DTO shapes, persistence model) must be written
+  before Plan 10 (*web-api*).
+- SRD 5.2 data (weapons, classes, spells) licensing/source file layout is undefined;
+  Plan 1 keeps rule data as Python constants and later plans must introduce `data/rules/`.
+
+## Conventions for all plans
+
+- TDD: every task is test-first, bite-sized steps, frequent commits.
+- Conventional commits scoped by architectural layer, e.g. `feat(domain): ...`.
+- No LLM, PostgreSQL, FastAPI, or AI-framework dependencies until their phase's plan.
+- The domain layer never imports application, AI, infrastructure, or interface code.
