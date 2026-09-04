@@ -23,3 +23,15 @@ uv pip install -e ".[dev]"
 ```bash
 .venv/bin/python -m interfaces.cli.app --seed 42
 ```
+
+## Persistence (PostgreSQL, optional)
+
+MVP-0 runs fully in memory by default. To persist games and events:
+
+```bash
+export DATABASE_URL=postgresql://user:pass@localhost:5432/conclave
+.venv/bin/python -m infrastructure.persistence.postgres.migrate   # idempotent
+.venv/bin/python -m interfaces.cli.app --db postgres --seed 42
+```
+
+Without `--db postgres` the game behaves exactly as before (in-memory).

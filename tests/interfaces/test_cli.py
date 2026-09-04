@@ -1,6 +1,7 @@
 # tests/interfaces/test_cli.py
 from io import StringIO
 
+import pytest
 from rich.console import Console
 
 from interfaces.cli.app import main, parse_input
@@ -43,3 +44,26 @@ def test_main_full_fight_reaches_a_winner() -> None:
     code = main(console=console, input_fn=_scripted(*(["attack goblin"] * 60)))
     assert code == 0
     assert "wins the combat" in buffer.getvalue()
+
+
+def test_build_service_postgres_requires_database_url(monkeypatch) -> None:
+    from interfaces.cli.app import build_service
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with pytest.raises(ValueError, match="DATABASE_URL"):
+        build_service("postgres")
+
+
+def test_main_reports_missing_database_url(monkeypatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(argv=["--db", "postgres"], console=console, input_fn=_scripted())
+    assert code == 2
+    assert "DATABASE_URL" in buffer.getvalue()
+
+
+def test_build_service_rejects_unknown_backend() -> None:
+    from interfaces.cli.app import build_service
+
+    with pytest.raises(ValueError, match="unknown database backend"):
+        build_service("oracle")

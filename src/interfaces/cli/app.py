@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Callable
 
@@ -16,10 +17,16 @@ from application.commands import (
 )
 from application.game_service import GameService
 from application.views import GameView
-from domain.common.errors import DomainError
+from domain.common.errors import DomainError, PersistenceError
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
+from infrastructure.persistence.postgres.connection import connect
+from infrastructure.persistence.postgres.migrate import run_migrations
+from infrastructure.persistence.postgres.repository import (
+    PostgresEventRepository,
+    PostgresGameRepository,
+)
 from interfaces.cli.renderer import render_game_view, render_report
 
 
@@ -35,9 +42,25 @@ def parse_input(raw: str) -> tuple[str, str]:
     return ("unknown", stripped)
 
 
-def build_service() -> GameService:
-    event_store = InMemoryEventRepository()
-    return GameService(InMemoryGameRepository(event_store), event_store)
+def build_service(db: str = "memory") -> GameService:
+    """Wire the application layer onto a persistence backend (spec §8)."""
+    if db == "memory":
+        event_store = InMemoryEventRepository()
+        return GameService(InMemoryGameRepository(event_store), event_store)
+    if db == "postgres":
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL is not set; copy .env.example and configure it "
+                "to run with --db postgres"
+            )
+        run_migrations(database_url)
+        connection = connect(database_url)
+        return GameService(
+            PostgresGameRepository(connection),
+            PostgresEventRepository(connection),
+        )
+    raise ValueError(f"unknown database backend: {db!r}")
 
 
 def _resolve_target(view: GameView, token: str) -> str | None:
@@ -106,12 +129,18 @@ def main(
 ) -> int:
     parser = argparse.ArgumentParser(prog="conclave")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--db", choices=("memory", "postgres"), default="memory")
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
 
     console = console or Console()
-    service = service or build_service()
+    if service is None:
+        try:
+            service = build_service(args.db)
+        except (ValueError, PersistenceError) as error:
+            console.print(f"[red]{error}[/red]")
+            return 2
 
     game_id = service.create_game(CreateGameCommand(seed=args.seed))
     service.add_character(game_id, _arin())
@@ -149,7 +178,7 @@ def main(
             if argument == "/status":
                 continue
             if argument == "/help":
-                console.print(f"Commands: attack <target>, /status, /help, /quit")
+                console.print("Commands: attack <target>, /status, /help, /quit")
             else:
                 console.print(f"Unknown command: {argument}")
             continue
