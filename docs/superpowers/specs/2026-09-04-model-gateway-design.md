@@ -46,6 +46,8 @@ never decides game rules, never mutates game state, and never sees domain concep
    single-attempt transport.
 8. **Model IDs verified** against OpenRouter's catalog on 2026-09-04: Z.ai GLM
    namespace (`z-ai/glm-5.3-flash`, `z-ai/glm-5.2`). IDs are config values, not code.
+9. **Cheap model everywhere until the final version** (user directive). All six
+   profiles map to `z-ai/glm-5.3-flash`; stronger models are a later config edit.
 
 ## Architecture & module layout
 
@@ -318,13 +320,17 @@ Extends CLAUDE.md §49's `ModelError`/`ModelTimeout` into a catchable hierarchy.
 ```toml
 default_provider = "openrouter"
 
+# User directive (2026-09-04): until the final version, ALL profiles use the cheap
+# model (z-ai/glm-5.3-flash). Per-profile temperature stays — it tunes behavior, not
+# cost. Upgrading individual profiles to stronger models later is a config edit only.
+
 [profiles.gm]                # narration quality
 provider = "openrouter"
-model = "z-ai/glm-5.2"
+model = "z-ai/glm-5.3-flash"
 temperature = 0.8
 max_tokens = 1024
 
-[profiles.player]            # default character-agent brain (volume consumer)
+[profiles.player]            # default character-agent brain
 provider = "openrouter"
 model = "z-ai/glm-5.3-flash"
 temperature = 0.7
@@ -338,12 +344,12 @@ max_tokens = 512
 
 [profiles.reasoning]
 provider = "openrouter"
-model = "z-ai/glm-5.2"
+model = "z-ai/glm-5.3-flash"
 temperature = 0.3
 
 [profiles.creative]
 provider = "openrouter"
-model = "z-ai/glm-5.2"
+model = "z-ai/glm-5.3-flash"
 temperature = 1.0
 
 [profiles.embedding]         # reserved — unused until Plan 7 (pgvector memory)
@@ -354,7 +360,7 @@ model = "z-ai/glm-5.3-flash"
 input_per_million_usd = 0.07125
 output_per_million_usd = 0.2375
 
-[pricing."z-ai/glm-5.2"]
+[pricing."z-ai/glm-5.2"]         # kept for the future upgrade path
 input_per_million_usd = 0.4875
 output_per_million_usd = 1.56
 ```
