@@ -43,3 +43,11 @@ class GameNotRunningError(DomainError):
 
 class AgentDecisionFailedError(DomainError):
     pass
+
+
+class ConcurrentGameModification(DomainError):
+    """A save lost the optimistic-lock race: the game was modified elsewhere."""
+
+
+class PersistenceError(DomainError):
+    """A storage failure occurred below the repository boundary."""

@@ -124,3 +124,11 @@ def test_status_transitions() -> None:
     assert game.status is GameStatus.RUNNING
     game.mark_ended()
     assert game.status is GameStatus.ENDED
+
+
+def test_game_version_defaults_to_zero_and_is_persistence_metadata() -> None:
+    game = _game()
+    assert game.version == 0
+    # Persistence metadata: stamped by the repository, never read by rules.
+    game.version = 3
+    assert game.version == 3

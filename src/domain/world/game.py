@@ -26,6 +26,9 @@ class Game:
     party_ids: list[CharacterId] = field(default_factory=list)
     enemy_ids: list[CharacterId] = field(default_factory=list)
     status: GameStatus = GameStatus.CREATED
+    # Persistence metadata: stamped (+1) by the repository after each committed
+    # save; the optimistic-lock token for atomic writes. Domain rules never read it.
+    version: int = 0
 
     def add_party_member(self, character: Character) -> None:
         self._add_member(character)
