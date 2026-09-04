@@ -36,7 +36,8 @@ def parse_input(raw: str) -> tuple[str, str]:
 
 
 def build_service() -> GameService:
-    return GameService(InMemoryGameRepository(), InMemoryEventRepository())
+    event_store = InMemoryEventRepository()
+    return GameService(InMemoryGameRepository(event_store), event_store)
 
 
 def _resolve_target(view: GameView, token: str) -> str | None:
@@ -148,7 +149,7 @@ def main(
             if argument == "/status":
                 continue
             if argument == "/help":
-                console.print("Commands: attack <target>, /status, /help, /quit")
+                console.print(f"Commands: attack <target>, /status, /help, /quit")
             else:
                 console.print(f"Unknown command: {argument}")
             continue

@@ -81,9 +81,7 @@ class GameService:
 
     def _persist(self, game: Game) -> list[EventEnvelope]:
         drained = self._collector(game).drain()
-        for envelope in drained:
-            self._events.append(game.game_id, envelope)
-        self._games.save(game)
+        self._games.save(game, drained)
         return drained
 
     # -- use cases ---------------------------------------------------------

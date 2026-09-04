@@ -22,7 +22,8 @@ from infrastructure.persistence.in_memory import InMemoryGameRepository
 
 
 def _service() -> GameService:
-    return GameService(InMemoryGameRepository(), InMemoryEventRepository())
+    event_store = InMemoryEventRepository()
+    return GameService(InMemoryGameRepository(event_store), event_store)
 
 
 def _fighter_command(name: str = "Arin") -> AddCharacterCommand:
