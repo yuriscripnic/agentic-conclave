@@ -142,8 +142,9 @@ CREATE TABLE schema_migrations (
 - No automatic retry: the current process model is one logical command queue
   per game (CLAUDE.md §38); a version conflict signals a bug and is surfaced.
   A retry policy is a future, configuration-gated addition.
-- Connection handling: one psycopg connection owned by a small
-  `PostgresConnection` wrapper and shared by both repositories; each `save`
+- Connection handling: one psycopg connection owned in one place — a small
+  `connect()` factory in `infrastructure/persistence/postgres/connection.py`
+  (autocommit, `dict_row`) — and shared by both repositories; each `save`
   uses `with connection.transaction()`. No pooling package (YAGNI; CLI and
   tests are single-user).
 
@@ -179,8 +180,10 @@ HTTP API (Plan 10).
   stamping, error mapping.
 - **New integration tests** (real PostgreSQL via `pgserver`, marked as a
   dedicated module):
-  - fixture: session-scoped `pgserver.get_server(tempdir)`; function-scoped
-    `CREATE DATABASE` per test (fast, fully isolated).
+  - fixture: session-scoped `pgserver.get_server(tempdir)` with the schema
+    applied once per session; tests share that single database and use unique
+    game UUIDs, giving equivalent isolation to per-test `CREATE DATABASE`
+    without connection-URL surgery (refined during planning, 2026-09-04).
   - aggregate roundtrip: `save → get` reproduces the full aggregate
     (characters, sides, HP, inventory, conditions, weapon, status).
   - optimistic locking: stale-version save raises `ConcurrentGameModification`
