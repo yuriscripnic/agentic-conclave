@@ -14,8 +14,8 @@ mandated by the Implementation Plan document.
 
 | # | Plan file | Covers (Implementation Plan doc) | Status |
 |---|-----------|----------------------------------|--------|
-| 1 | `2026-09-03-deterministic-core-mvp0.md` | Phases 0–7 — Repository bootstrap, domain primitives, dice, checks, actions, combat, events, first playable CLI (**MVP-0**) | Written |
-| 2 | *persistence* | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Not written |
+| 1 | `2026-09-03-deterministic-core-mvp0.md` | Phases 0–7 — Repository bootstrap, domain primitives, dice, checks, actions, combat, events, first playable CLI (**MVP-0**) | Complete |
+| 2 | `2026-09-04-persistence-postgres.md` | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Complete |
 | 3 | *model-gateway* | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Not written |
 | 4 | *character-agent* | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Not written |
 | 5 | *gm-agent* | Phase 13 — GM agent with narration + world tools behind the rules engine | Not written |
@@ -28,6 +28,10 @@ mandated by the Implementation Plan document.
 
 ## Known documentation gaps (resolve before the corresponding plan)
 
+- Resolved (Plan 2): PostgreSQL test/dev strategy uses `pgserver` (pip-installable,
+  root-free, pgvector bundled for Plan 7; session-scoped fixture verified against
+  PostgreSQL 16.2); runtime uses `psycopg` 3 + `DATABASE_URL` with plain-SQL
+  migrations. CLAUDE.md §36 needed no amendments.
 - The Implementation Plan references `docs/architecture/domain-model-and-api.md` for API
   contracts, but the existing `docs/Agentic Conclave-domain-model-and-api.md` is a duplicate
   of the architecture overview and contains **no** API/domain-model contracts. A real

@@ -1914,6 +1914,35 @@ git commit -m "docs: mark plans 1-2 complete and record the pgserver decision" -
 
 ---
 
+## Execution notes (recorded during implementation, 2026-09-04)
+
+Deviations found while executing this plan; the task code above is left as written
+and these notes are the record of what actually shipped:
+
+1. **Task 2** — `build_service()` in `src/interfaces/cli/app.py` also received the
+   mechanical shared-store wiring (`InMemoryGameRepository(event_store)`) in the
+   Task 2 commit, so the suite stays green at every commit (spec §4 already called
+   for construction sites to be updated mechanically; the task's file list omitted it).
+2. **Task 4** — `game_from_row` wraps its reconstruction so `ValidationError`s raised
+   by domain constructors (e.g. invalid HP) are normalized to the same
+   `corrupt persisted state:` marker as the structural checks (the tampered-row test
+   requires that marker).
+3. **Task 5** — psycopg 3.3.5 does not adapt `dict` to JSONB natively; `repository.save`
+   wraps `state` and `payload` in `psycopg.types.json.Jsonb` at execution time, keeping
+   the mapping layer pure.
+4. **Task 3** — psycopg's stubs type `psycopg.connect` as tuple-rowed and non-generic
+   over `row_factory`; `connect()` declares the runtime truth
+   (`Connection[dict[str, Any]]`) via `cast`, and repositories/migrations annotate
+   against that type (mypy strict-clean).
+5. **Task 6** — the two `test_postgres_wiring.py` assertions were adjusted for the
+   shared session database (spec §10 amendment): the event query is scoped by
+   `game_id`, and the CLI test asserts a game-count delta instead of `len(games) == 1`.
+6. **Environment** — the worktree uses its own project-local `.venv` created with
+   `uv`; every command invokes `.venv/bin/python` explicitly so the inherited
+   `VIRTUAL_ENV` (pointing at the main checkout) never leaks in.
+
+---
+
 ## Completion Standard (CLAUDE.md §73)
 
 - **What changed?** PostgreSQL persistence behind the existing ports: atomic `save(game, pending_events)` with optimistic locking (`version` + `ConcurrentGameModification`), append-only `game_events`, SQL migrations + runner, `--db` CLI wiring, `pgserver`-based integration tests.
