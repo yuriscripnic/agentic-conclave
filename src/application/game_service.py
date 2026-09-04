@@ -187,9 +187,12 @@ class GameService:
         engine = self._engine(game)
 
         result = engine.resolve(game, combat, proposal, collector)
-        if result.valid and combat.status is CombatStatus.ACTIVE:
-            engine.advance_turn(game, combat, collector)
-        self._run_enemy_chain(game, combat, engine, collector)
+        if result.valid:
+            # A rejected proposal must not mutate state (CLAUDE.md §28): no turn
+            # advance and no enemy chain — the game waits for a legal action.
+            if combat.status is CombatStatus.ACTIVE:
+                engine.advance_turn(game, combat, collector)
+            self._run_enemy_chain(game, combat, engine, collector)
 
         game_over = combat.status is CombatStatus.ENDED
         if game_over:
