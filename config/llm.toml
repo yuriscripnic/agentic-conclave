@@ -1,0 +1,46 @@
+# Model profiles for the Agentic Conclave model gateway (Plan 3).
+# No secrets here: the OpenRouter key comes from the OPENROUTER_API_KEY env var.
+# Until the final version, ALL profiles use the cheap model (user directive,
+# 2026-09-04); upgrading a profile is a one-line config edit.
+
+default_provider = "openrouter"
+
+[profiles.gm]
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+temperature = 0.8
+max_tokens = 1024
+
+[profiles.player]
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+temperature = 0.7
+max_tokens = 1024
+
+[profiles.cheap]
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+temperature = 0.5
+max_tokens = 512
+
+[profiles.reasoning]
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+temperature = 0.3
+
+[profiles.creative]
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+temperature = 1.0
+
+[profiles.embedding]  # reserved — unused until Plan 7 (pgvector memory)
+provider = "openrouter"
+model = "z-ai/glm-5.3-flash"
+
+[pricing."z-ai/glm-5.3-flash"]  # verified 2026-09-04; USD per million tokens
+input_per_million_usd = 0.07125
+output_per_million_usd = 0.2375
+
+[pricing."z-ai/glm-5.2"]  # kept for the future upgrade path
+input_per_million_usd = 0.4875
+output_per_million_usd = 1.56
