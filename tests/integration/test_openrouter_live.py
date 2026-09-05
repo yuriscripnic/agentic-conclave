@@ -18,7 +18,7 @@ def test_openrouter_live_generate() -> None:
         messages=(Message(role="user", content="Reply with exactly: ok"),),
         model="z-ai/glm-5.3-flash",
         temperature=0.0,
-        max_tokens=10,
+        max_tokens=100,
         timeout_seconds=30.0,
     )
     response = asyncio.run(gateway.generate(request))
