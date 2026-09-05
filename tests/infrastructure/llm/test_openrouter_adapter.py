@@ -222,3 +222,83 @@ def test_transport_error_maps_to_model_error() -> None:
     assert not isinstance(excinfo.value, ModelTimeoutError)
     assert excinfo.value.invocation is not None
     assert excinfo.value.invocation.error_kind == "error"
+
+
+_ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action_type": {"type": "string"},
+        "parameters": {
+            "type": "object",
+            "properties": {"target_id": {"type": "string"}},
+            "required": ["target_id"],
+        },
+    },
+    "required": ["action_type", "parameters"],
+}
+
+
+def _structured_body(content: str) -> dict:
+    return {
+        **_SUCCESS_BODY,
+        "choices": [
+            {
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+
+
+def test_generate_structured_success() -> None:
+    captured = {}
+    payload = {"action_type": "attack", "parameters": {"target_id": "goblin-1"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_structured_body(json.dumps(payload)))
+
+    gateway = _gateway(handler)
+    response = asyncio.run(gateway.generate_structured(_request(), _ACTION_SCHEMA))
+
+    assert captured["body"]["response_format"] == {"type": "json_object"}
+    assert response.data == payload
+    assert response.model == "z-ai/glm-5.3-flash"
+    assert (response.usage.input_tokens, response.usage.output_tokens) == (11, 7)
+    assert response.invocation.provider == "openrouter"
+    assert response.invocation.operation == "generate_structured"
+    assert response.invocation.status == "ok"
+
+
+def test_generate_structured_invalid_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_structured_body("not json at all"))
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError) as excinfo:
+        asyncio.run(gateway.generate_structured(_request(), _ACTION_SCHEMA))
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.error_kind == "invalid_response"
+
+
+def test_generate_structured_non_object_rejected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_structured_body("[1, 2, 3]"))
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError, match="not a JSON object"):
+        asyncio.run(gateway.generate_structured(_request(), _ACTION_SCHEMA))
+
+
+def test_generate_structured_schema_violation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=_structured_body(
+                json.dumps({"action_type": 3, "parameters": {"target_id": "goblin-1"}})
+            ),
+        )
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError, match="action_type"):
+        asyncio.run(gateway.generate_structured(_request(), _ACTION_SCHEMA))

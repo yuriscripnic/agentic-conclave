@@ -1,5 +1,6 @@
 """OpenRouter adapter: single-attempt ModelGateway over the OpenAI-compatible API."""
 
+import json
 import time
 import uuid
 from collections.abc import Mapping
@@ -17,6 +18,7 @@ from ai.models.errors import (
     ModelUnavailableError,
 )
 from ai.models.profiles import ModelPricing
+from ai.models.schema import validate_against_schema
 from ai.models.types import (
     LLMInvocation,
     ModelRequest,
@@ -96,7 +98,49 @@ class OpenRouterModelGateway:
     async def generate_structured(
         self, request: ModelRequest, schema: Mapping[str, Any]
     ) -> StructuredModelResponse:
-        raise NotImplementedError("structured output lands in a later task")
+        started = time.perf_counter()
+        request_id = uuid.uuid4().hex
+        try:
+            body, content = await self._execute(request, "generate_structured")
+            data = self._structured_data(content, schema)
+        except ModelError as exc:
+            raise self._with_invocation(
+                request, "generate_structured", started, request_id, exc
+            ) from exc
+        usage = self._usage(body)
+        model = str(body.get("model", request.model))
+        invocation = LLMInvocation(
+            provider="openrouter",
+            model=model,
+            operation="generate_structured",
+            status="ok",
+            error_kind=None,
+            latency_ms=self._latency_ms(started),
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            estimated_cost_usd=self._cost(model, usage),
+            request_id=request_id,
+        )
+        return StructuredModelResponse(
+            data=data,
+            model=model,
+            usage=usage,
+            finish_reason=self._finish_reason(body),
+            invocation=invocation,
+        )
+
+    @staticmethod
+    def _structured_data(content: str, schema: Mapping[str, Any]) -> dict[str, Any]:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ModelInvalidResponseError(
+                f"structured output is not valid JSON: {exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ModelInvalidResponseError("structured output is not a JSON object")
+        validate_against_schema(parsed, schema)
+        return parsed
 
     def _with_invocation(
         self,
