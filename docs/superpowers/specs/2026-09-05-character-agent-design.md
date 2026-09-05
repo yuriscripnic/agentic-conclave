@@ -248,7 +248,6 @@ ATTACK_DECISION_SCHEMA: Mapping[str, Any] = {
 class AgentDecision:
     proposal: AttackProposal
     public_message: str
-    invocation: LLMInvocation
 
 class CharacterAgent:
     def __init__(self, profile: AgentProfile) -> None: ...
@@ -303,8 +302,9 @@ report; rejected → record `TurnReport.reason`, rebuild prompt with feedback, n
 Transport-level retries happen inside the runtime (decision 4). All attempts exhausted →
 fallback: first living opponent from the current `GameView.enemies` → `AttackProposal` →
 `submit_action`, `proposal_source="fallback"`. Non-retryable runtime errors propagate.
-Every `StructuredModelResponse.invocation` and every error's `.invocation` accumulates in
-the report.
+Invocations accumulate in the report at the service level: every successful
+`StructuredModelResponse.invocation`, plus the `.invocation` carried by any
+`AgentRuntimeError` that ends a decision attempt.
 
 **`fake_script.py`** — offline demo/test support: a helper that wraps `FakeModelGateway`
 and enqueues a repeating canned decision ("attack the first living opponent" + a fixed
