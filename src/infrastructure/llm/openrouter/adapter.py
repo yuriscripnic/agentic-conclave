@@ -7,7 +7,15 @@ from typing import Any
 
 import httpx
 
-from ai.models.errors import MissingAPIKeyError, ModelInvalidResponseError
+from ai.models.errors import (
+    MissingAPIKeyError,
+    ModelError,
+    ModelInvalidResponseError,
+    ModelRateLimitedError,
+    ModelRequestError,
+    ModelTimeoutError,
+    ModelUnavailableError,
+)
 from ai.models.profiles import ModelPricing
 from ai.models.types import (
     LLMInvocation,
@@ -18,6 +26,20 @@ from ai.models.types import (
 )
 
 _FINISH_REASONS = {"stop", "length", "content_filter"}
+
+
+def _error_kind(exc: ModelError) -> str:
+    if isinstance(exc, ModelTimeoutError):
+        return "timeout"
+    if isinstance(exc, ModelRateLimitedError):
+        return "rate_limited"
+    if isinstance(exc, ModelRequestError):
+        return "bad_request"
+    if isinstance(exc, ModelUnavailableError):
+        return "unavailable"
+    if isinstance(exc, ModelInvalidResponseError):
+        return "invalid_response"
+    return "error"
 
 
 class OpenRouterModelGateway:
@@ -43,7 +65,12 @@ class OpenRouterModelGateway:
     async def generate(self, request: ModelRequest) -> ModelResponse:
         started = time.perf_counter()
         request_id = uuid.uuid4().hex
-        body, content = await self._execute(request, "generate")
+        try:
+            body, content = await self._execute(request, "generate")
+        except ModelError as exc:
+            raise self._with_invocation(
+                request, "generate", started, request_id, exc
+            ) from exc
         usage = self._usage(body)
         model = str(body.get("model", request.model))
         invocation = LLMInvocation(
@@ -71,11 +98,39 @@ class OpenRouterModelGateway:
     ) -> StructuredModelResponse:
         raise NotImplementedError("structured output lands in a later task")
 
+    def _with_invocation(
+        self,
+        request: ModelRequest,
+        operation: str,
+        started: float,
+        request_id: str,
+        exc: ModelError,
+    ) -> ModelError:
+        status = "timeout" if isinstance(exc, ModelTimeoutError) else "error"
+        exc.invocation = LLMInvocation(
+            provider="openrouter",
+            model=request.model,
+            operation=operation,
+            status=status,
+            error_kind=_error_kind(exc),
+            latency_ms=self._latency_ms(started),
+            input_tokens=None,
+            output_tokens=None,
+            estimated_cost_usd=None,
+            request_id=request_id,
+        )
+        return exc
+
     async def _execute(
         self, request: ModelRequest, operation: str
     ) -> tuple[dict[str, Any], str]:
         payload = self._payload(request, operation)
-        response = await self._post(request, payload)
+        try:
+            response = await self._post(request, payload)
+        except httpx.TimeoutException as exc:
+            raise ModelTimeoutError(f"OpenRouter request timed out: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise ModelError(f"OpenRouter transport error: {exc}") from exc
         body = self._body(response)
         return body, self._content(body)
 
@@ -112,7 +167,24 @@ class OpenRouterModelGateway:
             return await client.post(url, json=payload, headers=headers, timeout=timeout)
 
     def _body(self, response: httpx.Response) -> dict[str, Any]:
-        response.raise_for_status()  # interim: replaced by error mapping in a later task
+        if response.status_code == 429:
+            raise ModelRateLimitedError(
+                "OpenRouter rate limit hit (HTTP 429)",
+                retry_after_seconds=self._retry_after(response),
+            )
+        if 400 <= response.status_code < 500:
+            raise ModelRequestError(
+                f"OpenRouter rejected the request (HTTP {response.status_code}): "
+                f"{response.text[:200]}"
+            )
+        if response.status_code >= 500:
+            raise ModelUnavailableError(
+                f"OpenRouter unavailable (HTTP {response.status_code})"
+            )
+        if response.status_code != 200:
+            raise ModelError(
+                f"OpenRouter returned unexpected status HTTP {response.status_code}"
+            )
         try:
             body = response.json()
         except ValueError as exc:
@@ -120,6 +192,16 @@ class OpenRouterModelGateway:
         if not isinstance(body, dict):
             raise ModelInvalidResponseError("OpenRouter returned an unexpected JSON body")
         return body
+
+    @staticmethod
+    def _retry_after(response: httpx.Response) -> float | None:
+        raw = response.headers.get("retry-after")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            return None
 
     @staticmethod
     def _content(body: dict[str, Any]) -> str:

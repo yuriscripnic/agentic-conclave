@@ -4,7 +4,15 @@ import json
 import httpx
 import pytest
 
-from ai.models.errors import MissingAPIKeyError
+from ai.models.errors import (
+    MissingAPIKeyError,
+    ModelError,
+    ModelInvalidResponseError,
+    ModelRateLimitedError,
+    ModelRequestError,
+    ModelTimeoutError,
+    ModelUnavailableError,
+)
 from ai.models.profiles import ModelPricing
 from ai.models.types import Message, ModelRequest
 from infrastructure.llm.openrouter.adapter import OpenRouterModelGateway
@@ -117,3 +125,100 @@ def test_timeout_seconds_propagates_to_request() -> None:
     gateway = _gateway(handler)
     asyncio.run(gateway.generate(_request(timeout_seconds=1.5)))
     assert captured["timeout"]["read"] == 1.5
+
+
+def test_timeout_maps_to_model_timeout_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("too slow")
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelTimeoutError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.status == "timeout"
+    assert excinfo.value.invocation.error_kind == "timeout"
+
+
+def test_429_maps_to_rate_limited_with_retry_after() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"retry-after": "7"})
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelRateLimitedError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert excinfo.value.retry_after_seconds == 7.0
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.error_kind == "rate_limited"
+
+
+def test_429_without_parseable_retry_after_is_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429)
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelRateLimitedError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert excinfo.value.retry_after_seconds is None
+
+
+def test_4xx_maps_to_model_request_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "bad key"}})
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelRequestError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.error_kind == "bad_request"
+
+
+def test_5xx_maps_to_model_unavailable_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelUnavailableError):
+        asyncio.run(gateway.generate(_request()))
+
+
+def test_no_choices_maps_to_invalid_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": []})
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.error_kind == "invalid_response"
+
+
+def test_empty_content_maps_to_invalid_response() -> None:
+    body = {**_SUCCESS_BODY, "choices": [{"message": {"role": "assistant", "content": ""}}]}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError):
+        asyncio.run(gateway.generate(_request()))
+
+
+def test_non_json_body_maps_to_invalid_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"not json")
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelInvalidResponseError):
+        asyncio.run(gateway.generate(_request()))
+
+
+def test_transport_error_maps_to_model_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    gateway = _gateway(handler)
+    with pytest.raises(ModelError) as excinfo:
+        asyncio.run(gateway.generate(_request()))
+    assert not isinstance(excinfo.value, ModelTimeoutError)
+    assert excinfo.value.invocation is not None
+    assert excinfo.value.invocation.error_kind == "error"
