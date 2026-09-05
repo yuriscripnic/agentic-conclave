@@ -35,3 +35,17 @@ export DATABASE_URL=postgresql://user:pass@localhost:5432/conclave
 ```
 
 Without `--db postgres` the game behaves exactly as before (in-memory).
+
+## Model gateway (offline by default)
+
+LLM access goes through a provider-agnostic `ModelGateway` (`src/ai/models/`).
+Tests and offline runs use the deterministic `FakeModelGateway`; live calls use
+the OpenRouter adapter behind `OPENROUTER_API_KEY`:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+```
+
+Model profiles (`gm`, `player`, `cheap`, `reasoning`, `creative`, `embedding`)
+are configured in `config/llm.toml`. Nothing in the game calls the gateway yet —
+the first consumer is the character agent (Plan 4).

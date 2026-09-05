@@ -16,7 +16,7 @@ mandated by the Implementation Plan document.
 |---|-----------|----------------------------------|--------|
 | 1 | `2026-09-03-deterministic-core-mvp0.md` | Phases 0–7 — Repository bootstrap, domain primitives, dice, checks, actions, combat, events, first playable CLI (**MVP-0**) | Complete |
 | 2 | `2026-09-04-persistence-postgres.md` | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Complete |
-| 3 | *model-gateway* | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Not written |
+| 3 | `2026-09-04-model-gateway.md` | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Complete |
 | 4 | *character-agent* | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Not written |
 | 5 | *gm-agent* | Phase 13 — GM agent with narration + world tools behind the rules engine | Not written |
 | 6 | *multi-agent-party* | Phase 14 — dynamic party, agent scheduler, public party communication | Not written |
