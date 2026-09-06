@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from ai.agents.errors import AgentRuntimeError, AgentRuntimeMisconfiguredError
 from ai.agents.runtime import AgentRuntime
+from ai.memory.types import MemoryRecord
+from ai.models.errors import ModelError
 from ai.models.profiles import ModelProfileCatalog
 from ai.models.types import LLMInvocation
 from application.agents.character_agent import (
@@ -24,7 +26,9 @@ from application.agents.perception import (
 from application.agents.profiles import AgentProfile, AgentProfileCatalog
 from application.commands import SubmitActionCommand
 from application.game_service import GameService
+from application.memory.memory_service import MemoryService
 from application.views import TurnReport
+from domain.common.errors import PersistenceError
 from domain.common.ids import CharacterId, GameId
 
 _PARTY_CHATTER_LIMIT = 8
@@ -43,6 +47,7 @@ class AgentTurnReport:
     invocations: tuple[LLMInvocation, ...]
     turn_report: TurnReport
     party_message: str | None = None
+    memory_retrieved: int = 0
 
 
 class AgentNotRegisteredError(KeyError):
@@ -61,6 +66,7 @@ class AgentTurnService:
         *,
         max_action_retries: int | None = None,
         board: PartyMessageBoard | None = None,
+        memory: MemoryService | None = None,
     ) -> None:
         self._game_service = game_service
         self._runtime = runtime
@@ -71,6 +77,7 @@ class AgentTurnService:
             else agent_profiles.max_action_retries
         )
         self._board = board if board is not None else PartyMessageBoard()
+        self._memory = memory
         self._agents: dict[str, AgentProfile] = {}
 
     def register(self, actor_id: CharacterId, profile: AgentProfile) -> None:
@@ -89,11 +96,14 @@ class AgentTurnService:
         invocations: list[LLMInvocation] = []
         rejection_reasons: list[str] = []
         rejection: str | None = None
-        perception: AgentPerception | None = None
+
+        # Rejected actions never mutate game state (§28), so one perception serves
+        # every attempt; hoisting it also makes memory retrieval once-per-turn.
+        view = self._game_service.get_view(game_id)
+        perception = build_perception(view, actor_id.value)
+        memories = self._retrieve_memories(game_id, perception, invocations)
 
         for attempt in range(1, self._max_action_retries + 2):
-            view = self._game_service.get_view(game_id)
-            perception = build_perception(view, actor_id.value)
             try:
                 response = self._runtime.decide_structured(
                     profile=model_profile,
@@ -102,6 +112,7 @@ class AgentTurnService:
                         perception,
                         rejection=rejection,
                         party_messages=self._board.recent(_PARTY_CHATTER_LIMIT),
+                        memories=memories,
                     ),
                     schema=ATTACK_DECISION_SCHEMA,
                 )
@@ -130,6 +141,9 @@ class AgentTurnService:
                             round_number=perception.round_number,
                         )
                     )
+                self._record_memories(
+                    game_id, perception, turn_report, decision.memory_note, invocations
+                )
                 return AgentTurnReport(
                     actor_id=actor_id.value,
                     actor_name=perception.self_view.name,
@@ -142,15 +156,16 @@ class AgentTurnService:
                     invocations=tuple(invocations),
                     turn_report=turn_report,
                     party_message=decision.party_message,
+                    memory_retrieved=len(memories),
                 )
             rejection = turn_report.reason or "action rejected by the rules engine"
             rejection_reasons.append(rejection)
 
-        assert perception is not None  # the loop always runs at least one attempt
         return self._fallback(
             game_id,
             actor_id,
-            perception.self_view.name,
+            perception,
+            memories,
             invocations,
             tuple(rejection_reasons),
         )
@@ -171,7 +186,8 @@ class AgentTurnService:
         self,
         game_id: GameId,
         actor_id: CharacterId,
-        actor_name: str,
+        perception: AgentPerception,
+        memories: tuple[MemoryRecord, ...],
         invocations: list[LLMInvocation],
         rejection_reasons: tuple[str, ...],
     ) -> AgentTurnReport:
@@ -190,9 +206,10 @@ class AgentTurnService:
                 target_id=CharacterId(target_id),
             )
         )
+        self._record_memories(game_id, perception, turn_report, None, invocations)
         return AgentTurnReport(
             actor_id=actor_id.value,
-            actor_name=actor_name,
+            actor_name=perception.self_view.name,
             accepted=turn_report.accepted,
             proposal_source="fallback",
             action_attempts=self._max_action_retries + 1,
@@ -202,4 +219,42 @@ class AgentTurnService:
             invocations=tuple(invocations),
             turn_report=turn_report,
             party_message=None,
+            memory_retrieved=len(memories),
         )
+
+    def _retrieve_memories(
+        self,
+        game_id: GameId,
+        perception: AgentPerception,
+        invocations: list[LLMInvocation],
+    ) -> tuple[MemoryRecord, ...]:
+        """Memory never gates a turn (spec §2.8): failures degrade to no memories."""
+        if self._memory is None:
+            return ()
+        try:
+            return self._memory.retrieve(str(game_id), perception)
+        except ModelError as error:
+            if error.invocation is not None:
+                invocations.append(error.invocation)
+            return ()
+        except PersistenceError:
+            return ()
+
+    def _record_memories(
+        self,
+        game_id: GameId,
+        perception: AgentPerception,
+        turn_report: TurnReport,
+        note: str | None,
+        invocations: list[LLMInvocation],
+    ) -> None:
+        """Recording never revisits an accepted action (spec §2.8): failures drop the write."""
+        if self._memory is None:
+            return
+        try:
+            self._memory.record_turn(str(game_id), perception, turn_report, note=note)
+        except ModelError as error:
+            if error.invocation is not None:
+                invocations.append(error.invocation)
+        except PersistenceError:
+            return

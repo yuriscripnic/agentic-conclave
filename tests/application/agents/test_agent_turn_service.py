@@ -1,5 +1,6 @@
 """AgentTurnService decision-loop tests (scripted fake gateway, no real LLM)."""
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -7,13 +8,17 @@ import pytest
 
 from ai.agents.retry import RetryPolicy
 from ai.agents.runtime import AgentRuntime
-from ai.models.errors import ModelTimeoutError
+from ai.memory.fake import DeterministicEmbeddingGateway
+from ai.memory.ports import EmbeddingGateway
+from ai.memory.types import EmbeddingRequest, EmbeddingResponse, MemoryKind, MemoryRecord
+from ai.models.errors import ModelRequestError, ModelTimeoutError
 from ai.models.fake import FakeModelGateway
 from ai.models.profiles import ModelProfile, ModelProfileCatalog
 from ai.models.types import ModelRequest, StructuredModelResponse
 from application.agents.agent_turn_service import AgentNotRegisteredError, AgentTurnService
 from application.agents.fake_script import ScriptedAgentGateway
 from application.agents.party_board import PartyMessageBoard
+from application.agents.perception import AgentPerception, OpponentBrief
 from application.agents.profiles import AgentProfile, AgentProfileCatalog, AgentStats
 from application.commands import (
     AddCharacterCommand,
@@ -22,8 +27,10 @@ from application.commands import (
     WeaponSpec,
 )
 from application.game_service import GameService
+from application.memory.memory_service import MemoryService
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
+from infrastructure.memory.in_memory import InMemoryMemoryRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
 
 _MODEL_CATALOG = ModelProfileCatalog(
@@ -229,6 +236,7 @@ def _agent_service(
     *,
     max_action_retries: int = 2,
     board: PartyMessageBoard | None = None,
+    memory: MemoryService | None = None,
 ) -> AgentTurnService:
     runtime = AgentRuntime(gateway, RetryPolicy(max_attempts=3))
     agent_profiles = AgentProfileCatalog(
@@ -236,7 +244,7 @@ def _agent_service(
         agents={"brix": _BRIX},
     )
     return AgentTurnService(
-        game_service, runtime, _MODEL_CATALOG, agent_profiles, board=board
+        game_service, runtime, _MODEL_CATALOG, agent_profiles, board=board, memory=memory
     )
 
 
@@ -502,3 +510,194 @@ def test_full_four_agent_fight_completes() -> None:
             )
 
     assert game_service.get_view(game_id).status == "ended"
+
+
+class _FailingEmbeddingGateway:
+    """Embedder that always fails — memory must never gate the turn (spec §2.8)."""
+
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        raise ModelRequestError("embeddings are down")
+
+
+def _memory_service(
+    gateway: EmbeddingGateway | None = None,
+) -> tuple[MemoryService, InMemoryMemoryRepository]:
+    repo = InMemoryMemoryRepository()
+    embedder = gateway if gateway is not None else DeterministicEmbeddingGateway()
+    return MemoryService(embedder, repo, model="test-model"), repo
+
+
+def _retrieval_perception(
+    game_service: GameService, game_id: GameId, actor_id: str
+) -> AgentPerception:
+    """A perception for retrieval assertions — the turn is over, so build it manually."""
+    view = game_service.get_view(game_id)
+    me = next(member for member in (*view.party, *view.enemies) if member.id == actor_id)
+    opponents = tuple(
+        OpponentBrief(id=enemy.id, name=enemy.name, is_defeated=enemy.is_defeated)
+        for enemy in view.enemies
+    )
+    combat = view.combat
+    return AgentPerception(
+        round_number=combat.round_number if combat else 1,
+        active_actor_id=actor_id,
+        self_view=me,
+        opponents=opponents,
+        initiative_order=(
+            tuple(entry.name for entry in combat.initiative_order) if combat else ()
+        ),
+    )
+
+
+def test_accepted_model_turn_records_an_episodic_memory() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    fake.enqueue_structured(
+        {"action_type": "attack", "target_id": goblin_id.value, "public_message": "I strike."}
+    )
+    memory, _repo = _memory_service()
+    service = _agent_service(game_service, fake, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.accepted is True
+    memories = memory.retrieve(
+        str(game_id), _retrieval_perception(game_service, game_id, brix_id.value)
+    )
+    episodic = [record for record in memories if record.kind is MemoryKind.EPISODIC]
+    assert len(episodic) == 1
+    assert episodic[0].text.startswith("Round 1: attacked Goblin and ")
+
+
+def test_accepted_model_turn_records_the_semantic_note() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    fake.enqueue_structured(
+        {
+            "action_type": "attack",
+            "target_id": goblin_id.value,
+            "public_message": "I strike.",
+            "memory_note": "The goblin bleeds — finish it.",
+        }
+    )
+    memory, _repo = _memory_service()
+    service = _agent_service(game_service, fake, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.accepted is True
+    memories = memory.retrieve(
+        str(game_id), _retrieval_perception(game_service, game_id, brix_id.value)
+    )
+    assert any(
+        record.kind is MemoryKind.SEMANTIC
+        and record.text == "The goblin bleeds — finish it."
+        for record in memories
+    )
+
+
+def test_retrieved_memories_render_into_the_prompt_and_count() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    text = "Brix watches the Goblin closely."
+    vector = asyncio.run(
+        DeterministicEmbeddingGateway().embed(
+            EmbeddingRequest(texts=(text,), model="test-model")
+        )
+    ).vectors[0]
+    memory, repo = _memory_service()
+    repo.append(
+        MemoryRecord(
+            memory_id="seed-1",
+            game_id=str(game_id),
+            agent_key=brix_id.value,
+            kind=MemoryKind.SEMANTIC,
+            text=text,
+            round_number=1,
+            embedding=vector,
+        )
+    )
+    fake = _CapturingFake()
+    fake.enqueue_structured(
+        {"action_type": "attack", "target_id": goblin_id.value, "public_message": "I strike."}
+    )
+    service = _agent_service(game_service, fake, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.accepted is True
+    assert report.memory_retrieved == 1
+    user_content = fake.requests[0].messages[-1].content
+    assert "Memories:" in user_content
+    assert f"- [semantic] {text}" in user_content
+
+
+def test_fallback_turn_records_episodic_memory_only() -> None:
+    game_service = _game_service()
+    game_id, brix_id, _goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    for _ in range(6):  # 2 decision attempts x 3 transport attempts
+        fake.enqueue_error(ModelTimeoutError("boom"))
+    memory, _repo = _memory_service()
+    service = _agent_service(game_service, fake, max_action_retries=1, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.proposal_source == "fallback"
+    assert report.accepted is True
+    memories = memory.retrieve(
+        str(game_id), _retrieval_perception(game_service, game_id, brix_id.value)
+    )
+    assert len(memories) == 1
+    assert memories[0].kind is MemoryKind.EPISODIC
+
+
+def test_rejected_attempts_record_no_semantic_memory() -> None:
+    game_service = _game_service()
+    game_id, brix_id, _goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    for _ in range(2):  # max_action_retries=1 -> 2 invalid decision attempts
+        fake.enqueue_structured(
+            {
+                "action_type": "attack",
+                "target_id": "nobody",
+                "public_message": "Who?",
+                "memory_note": "should never persist",
+            }
+        )
+    memory, _repo = _memory_service()
+    service = _agent_service(game_service, fake, max_action_retries=1, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.proposal_source == "fallback"
+    memories = memory.retrieve(
+        str(game_id), _retrieval_perception(game_service, game_id, brix_id.value)
+    )
+    assert len(memories) == 1  # the fallback attack's episodic memory
+    assert all(record.kind is MemoryKind.EPISODIC for record in memories)
+
+
+def test_embedding_failure_never_fails_the_turn() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    fake.enqueue_structured(
+        {"action_type": "attack", "target_id": goblin_id.value, "public_message": "I strike."}
+    )
+    memory, _repo = _memory_service(_FailingEmbeddingGateway())
+    service = _agent_service(game_service, fake, memory=memory)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.accepted is True
+    assert report.memory_retrieved == 0
+    assert len(report.invocations) == 1  # only the decision call; retrieval degraded
