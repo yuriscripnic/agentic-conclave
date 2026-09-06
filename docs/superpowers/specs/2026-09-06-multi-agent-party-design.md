@@ -241,9 +241,15 @@ One service still serves all registered agents — the board is shared by constr
 - `_wire_agent` → `_wire_party(service, game_id, mode, console) -> AgentTurnService`:
   loads `config/agents.toml`, adds each agent via `add_character` from its configured
   stats (replacing the hard-coded Brix fighter builder for agents; `_fighter("Arin")`
-  stays for the human), registers each with the service, loads `config/encounter.toml`
-  and adds the enemies. One announcement line:
+  stays for the human), registers each with the service. One announcement line:
   `Brix, Mira, Sera join the party (AI-controlled, mode: {mode})`.
+- **The encounter loads in every mode, `off` included.** The fight is game content, not
+  agent configuration: `main()` adds the enemies from `config/encounter.toml`
+  unconditionally, and the Plan 1 hard-coded `_goblin()` builder is deleted. `--agent
+  off` keeps exactly zero agent output and zero agent turns — what changes versus Plan 4
+  is only the encounter itself (2 goblins + orc instead of 1 goblin), which is this
+  plan's declared game content. The one Plan 1 CLI test scripting `attack goblin` targets
+  `attack goblin scout` by full name.
 - Rendering: the agent turn line shows the character's name (`Brix: "I strike."`), the
   chatter line prints as `Brix says: Focus the orc.` when present, telemetry and
   `render_report` unchanged. (Plan 4's `Agent:` prefix is replaced by names now that
@@ -292,8 +298,9 @@ New/updated tests:
   agents; full 4-party × 3-enemy fight completes offline with scripted decisions.
 - `tests/interfaces/test_cli.py` — `--agent fake` full fight with the three-agent party
   and three enemies reaches "ended"; all three enemy names resolve as targets; agent
-  lines render by name; `--agent off` output unchanged; Plan 4 `Agent:` assertions
-  updated to name-based rendering.
+  lines render by name with the chatter line; `--agent off` shows no agent activity;
+  Plan 4 `Agent:` assertions updated to name-based rendering; the Plan 1 full-fight test
+  updated to the configured encounter (`attack goblin scout` etc.).
 
 ## 6. Non-goals (deferred)
 
@@ -329,5 +336,7 @@ New/updated tests:
 - [ ] Enemy HP/AC never enter any prompt or party message (pinned by tests).
 - [ ] Every agent independently bounded: transport retries, decision attempts, fallback.
 - [ ] Full suite green offline without `OPENROUTER_API_KEY` or `DATABASE_URL`.
-- [ ] `--agent off` behavior identical to current CLI.
+- [ ] `--agent off`: zero agent output and zero agent turns; the encounter comes from
+      `config/encounter.toml` in all modes (the fight is the same, only participation
+      changes).
 - [ ] No provider SDK outside infrastructure; no new dependencies.
