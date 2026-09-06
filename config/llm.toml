@@ -1,7 +1,11 @@
 # Model profiles for the Agentic Conclave model gateway (Plan 3).
 # No secrets here: the OpenRouter key comes from the OPENROUTER_API_KEY env var.
-# Until the final version, ALL profiles use the cheap model (user directive,
+# Until the final version, ALL chat profiles use the cheap model (user directive,
 # 2026-09-04); upgrading a profile is a one-line config edit.
+# Carve-out (explicit user decision 2026-09-06): [profiles.embedding] uses
+# openai/text-embedding-3-small via OpenRouter's embeddings endpoint — glm-5.3-flash
+# is a chat model and cannot produce embeddings. The deterministic embedder covers
+# offline runs, so no key is required unless --agent llm is used.
 
 default_provider = "openrouter"
 
@@ -33,9 +37,9 @@ provider = "openrouter"
 model = "z-ai/glm-5.3-flash"
 temperature = 1.0
 
-[profiles.embedding]  # reserved — unused until Plan 7 (pgvector memory)
+[profiles.embedding]  # Plan 6 agent-memory embeddings (OpenAI-compatible /embeddings)
 provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+model = "openai/text-embedding-3-small"
 
 [pricing."z-ai/glm-5.3-flash"]  # verified 2026-09-04; USD per million tokens
 input_per_million_usd = 0.07125
@@ -44,3 +48,7 @@ output_per_million_usd = 0.2375
 [pricing."z-ai/glm-5.2"]  # kept for the future upgrade path
 input_per_million_usd = 0.4875
 output_per_million_usd = 1.56
+
+[pricing."openai/text-embedding-3-small"]  # verified 2026-09-06; USD per million tokens
+input_per_million_usd = 0.02
+output_per_million_usd = 0.0

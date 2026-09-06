@@ -73,3 +73,24 @@ retry budgets sit under `[agent]`. Agents may broadcast one short
 `party_message` per accepted turn; the last 8 messages join every agent's
 prompt. The agent proposes, the rules engine decides — invalid proposals are
 retried with the rejection reason, then a deterministic fallback attack.
+
+## Agent memory (offline by default)
+
+AI party members remember what happens to them. Each accepted turn records an
+**episodic** memory (derived from the turn's domain events) and, when the model
+includes a `memory_note` in its decision, a **semantic** one (the model's own
+note-to-self). Before each turn the five most relevant memories are retrieved by
+embedding similarity and rendered into the agent's prompt.
+
+- `--agent fake` uses a deterministic stdlib embedder and the in-memory
+  repository — fully offline.
+- `--agent llm` embeds with `openai/text-embedding-3-small` through OpenRouter
+  (the one sanctioned carve-out from the cheap-chat-model directive).
+- `--db postgres` persists memories to `agent_memories` (pgvector cosine search,
+  migration `002_agent_memories.sql`; a PostgreSQL with the `vector` extension
+  available is required — pgserver ships it); `--db memory` keeps them in RAM.
+
+Memory is bookkeeping, never a gate: retrieval or embedding failures degrade to
+an empty memory for that turn and the game continues (CLAUDE.md §28, §66).
+Memory contents are private context and are never logged or displayed outside
+the owning agent's own prompt (§20, §34).

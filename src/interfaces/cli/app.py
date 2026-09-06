@@ -12,6 +12,8 @@ from rich.console import Console
 
 from ai.agents.retry import RetryPolicy
 from ai.agents.runtime import AgentRuntime
+from ai.memory.fake import DeterministicEmbeddingGateway
+from ai.memory.ports import EmbeddingGateway, MemoryRepository
 from ai.models.errors import ModelError
 from ai.models.fake import FakeModelGateway
 from ai.models.profiles import load_model_profiles
@@ -26,11 +28,14 @@ from application.commands import (
 )
 from application.encounter import load_encounter
 from application.game_service import GameService
+from application.memory.memory_service import MemoryService
 from application.views import GameView
 from domain.common.errors import DomainError, PersistenceError
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
-from infrastructure.llm import create_gateway
+from infrastructure.llm import create_embedding_gateway, create_gateway
+from infrastructure.memory.in_memory import InMemoryMemoryRepository
+from infrastructure.memory.pgvector_repository import PgvectorMemoryRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
 from infrastructure.persistence.postgres.connection import connect
 from infrastructure.persistence.postgres.migrate import run_migrations
@@ -76,6 +81,21 @@ def build_service(db: str = "memory") -> GameService:
     raise ValueError(f"unknown database backend: {db!r}")
 
 
+def _memory_repository(db: str) -> MemoryRepository:
+    """Choose the memory backend alongside the game persistence backend (spec §3.6)."""
+    if db == "memory":
+        return InMemoryMemoryRepository()
+    if db == "postgres":
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            raise ValueError(
+                "DATABASE_URL is not set; copy .env.example and configure it "
+                "to run with --db postgres"
+            )
+        return PgvectorMemoryRepository(connect(database_url))
+    raise ValueError(f"unknown database backend: {db!r}")
+
+
 def _resolve_target(view: GameView, token: str) -> str | None:
     for member in (*view.party, *view.enemies):
         if member.id == token or member.name.lower() == token.lower():
@@ -116,10 +136,12 @@ def _wire_party(
     game_id: GameId,
     mode: str,
     console: Console,
+    db: str,
 ) -> AgentTurnService:
     """Wire the agent stack and add the AI party members before combat starts."""
     agent_profiles = load_agent_profiles(_CONFIG_DIR / "agents.toml")
     model_catalog = load_model_profiles(_CONFIG_DIR / "llm.toml")
+    api_key: str | None = None
     if mode == "llm":
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
@@ -137,11 +159,21 @@ def _wire_party(
                 "target_id": target.id,
                 "public_message": "I attack the nearest standing foe.",
                 "party_message": "Focus the nearest standing foe.",
+                "memory_note": "The orc hits hard; stay at range.",
             }
 
         gateway = ScriptedAgentGateway(fake, _decision)
+    embedding_profile = model_catalog.get("embedding")
+    embedder: EmbeddingGateway
+    if mode == "llm" and api_key is not None:
+        embedder = create_embedding_gateway(embedding_profile.provider, api_key=api_key)
+    else:
+        embedder = DeterministicEmbeddingGateway()
+    memory = MemoryService(embedder, _memory_repository(db), model=embedding_profile.model)
     runtime = AgentRuntime(gateway, RetryPolicy())
-    agent_service = AgentTurnService(service, runtime, model_catalog, agent_profiles)
+    agent_service = AgentTurnService(
+        service, runtime, model_catalog, agent_profiles, memory=memory
+    )
     names: list[str] = []
     for profile in agent_profiles.agents.values():
         stats = profile.stats
@@ -182,7 +214,8 @@ def _render_agent_turn(console: Console, report: AgentTurnReport, view: GameView
         )
     console.print(
         f"[dim]agent {report.actor_id} — source: {report.proposal_source}, "
-        f"attempts: {report.action_attempts}, llm calls: {len(report.invocations)}[/dim]"
+        f"attempts: {report.action_attempts}, llm calls: {len(report.invocations)}, "
+        f"memories: {report.memory_retrieved}[/dim]"
     )
     render_report(console, report.turn_report, view)
 
@@ -219,7 +252,7 @@ def main(
     agent_service: AgentTurnService | None = None
     if args.agent != "off":
         try:
-            agent_service = _wire_party(service, game_id, args.agent, console)
+            agent_service = _wire_party(service, game_id, args.agent, console, args.db)
         except (ValueError, ModelError) as error:
             console.print(f"[red]{error}[/red]")
             return 2

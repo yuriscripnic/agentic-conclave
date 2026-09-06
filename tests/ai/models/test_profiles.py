@@ -87,6 +87,23 @@ def test_shipped_config_has_six_cheap_profiles() -> None:
         "creative",
         "embedding",
     }
-    for profile in catalog.profiles.values():
+    for name, profile in catalog.profiles.items():
+        if name == "embedding":
+            continue  # the one sanctioned carve-out (Plan 6, user decision 2026-09-06)
         assert profile.model == "z-ai/glm-5.3-flash"
-    assert set(catalog.pricing) == {"z-ai/glm-5.3-flash", "z-ai/glm-5.2"}
+    assert set(catalog.pricing) == {
+        "z-ai/glm-5.3-flash",
+        "z-ai/glm-5.2",
+        "openai/text-embedding-3-small",
+    }
+
+
+def test_shipped_config_embedding_profile_is_the_sanctioned_carve_out() -> None:
+    config = Path(__file__).parents[3] / "config" / "llm.toml"
+    catalog = load_model_profiles(config)
+    embedding = catalog.get("embedding")
+    assert embedding.provider == "openrouter"
+    assert embedding.model == "openai/text-embedding-3-small"
+    assert catalog.pricing["openai/text-embedding-3-small"] == ModelPricing(
+        input_per_million_usd=0.02, output_per_million_usd=0.0
+    )
