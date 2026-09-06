@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from ai.memory.types import MemoryRecord
 from application.agents.party_board import PartyMessage
 from application.agents.perception import AgentPerception
 from application.agents.profiles import AgentProfile
@@ -19,12 +20,13 @@ ATTACK_DECISION_SCHEMA: Mapping[str, Any] = {
         "target_id": {"type": "string"},
         "public_message": {"type": "string"},
         "party_message": {"type": "string"},
+        "memory_note": {"type": "string"},
     },
     "required": ["action_type", "target_id", "public_message"],
     "additionalProperties": False,
 }
 
-_PARTY_MESSAGE_MAX_CHARS = 200
+_NOTE_MAX_CHARS = 200
 
 
 class InvalidAgentDecisionError(ValueError):
@@ -36,6 +38,7 @@ class AgentDecision:
     proposal: AttackProposal
     public_message: str
     party_message: str | None = None
+    memory_note: str | None = None
 
 
 class CharacterAgent:
@@ -56,9 +59,13 @@ class CharacterAgent:
             "- Choose exactly one target_id from the opponents listed in the user message.\n"
             "- You may include party_message: one short sentence coordinating with your "
             "allies. Omit it to stay silent.\n"
+            "- You may include memory_note: one short durable fact worth remembering in "
+            "later rounds (for example which foe hits hardest). Omit it if nothing is "
+            "worth noting.\n"
             '- Reply ONLY with a JSON object: action_type ("attack"), target_id (string), '
             "public_message (a short first-person battle cry or rationale; never hidden "
-            "reasoning), and optionally party_message (one short sentence for your allies).\n"
+            "reasoning), and optionally party_message and memory_note (each one short "
+            "sentence).\n"
             "- No other keys, no prose outside the JSON."
         )
 
@@ -68,6 +75,7 @@ class CharacterAgent:
         *,
         rejection: str | None = None,
         party_messages: tuple[PartyMessage, ...] = (),
+        memories: tuple[MemoryRecord, ...] = (),
     ) -> str:
         me = perception.self_view
         conditions = ", ".join(me.conditions) if me.conditions else "none"
@@ -88,6 +96,11 @@ class CharacterAgent:
             lines.extend(
                 f"- {message.actor_name} (round {message.round_number}): {message.text}"
                 for message in party_messages
+            )
+        if memories:
+            lines.append("Memories:")
+            lines.extend(
+                f"- [{memory.kind.value}] {memory.text}" for memory in memories
             )
         lines.append(f"Turn order: {', '.join(perception.initiative_order)}")
         if rejection is not None:
@@ -126,15 +139,16 @@ class CharacterAgent:
                 target_id=CharacterId(target_id),
             ),
             public_message=public_message.strip(),
-            party_message=self._map_party_message(data.get("party_message")),
+            party_message=self._map_note(data.get("party_message")),
+            memory_note=self._map_note(data.get("memory_note")),
         )
 
     @staticmethod
-    def _map_party_message(raw: object) -> str | None:
-        """Chatter is cosmetic: never a rejection — silence, collapse, truncate (spec §3.4)."""
+    def _map_note(raw: object) -> str | None:
+        """Cosmetic fields are never a rejection — silence, collapse, truncate (spec §3.4)."""
         if not isinstance(raw, str):
             return None
         collapsed = " ".join(raw.split())
         if not collapsed:
             return None
-        return collapsed[:_PARTY_MESSAGE_MAX_CHARS]
+        return collapsed[:_NOTE_MAX_CHARS]

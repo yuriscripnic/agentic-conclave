@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from ai.memory.types import MemoryKind, MemoryRecord
 from ai.models.errors import ModelInvalidResponseError
 from ai.models.schema import validate_against_schema
 from application.agents.character_agent import (
@@ -256,3 +257,110 @@ def test_user_prompt_renders_party_chatter() -> None:
 def test_user_prompt_omits_chatter_section_when_empty() -> None:
     prompt = CharacterAgent(_PROFILE).build_user_prompt(_perception(), party_messages=())
     assert "Party chatter:" not in prompt
+
+
+def test_schema_allows_optional_memory_note() -> None:
+    validate_against_schema(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "x",
+            "memory_note": "The orc hits hard.",
+        },
+        ATTACK_DECISION_SCHEMA,
+    )  # does not raise
+
+
+def test_schema_rejects_non_string_memory_note() -> None:
+    with pytest.raises(ModelInvalidResponseError):
+        validate_against_schema(
+            {
+                "action_type": "attack",
+                "target_id": "gob",
+                "public_message": "x",
+                "memory_note": 7,
+            },
+            ATTACK_DECISION_SCHEMA,
+        )
+
+
+def test_map_decision_memory_note_normalization() -> None:
+    agent = CharacterAgent(_PROFILE)
+    collapsed = agent.map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "memory_note": "  The orc\nhits hard!  ",
+        },
+        _perception(),
+    )
+    truncated = agent.map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "memory_note": "x" * 500,
+        },
+        _perception(),
+    )
+    silent = agent.map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "memory_note": "   ",
+        },
+        _perception(),
+    )
+    numeric = agent.map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "memory_note": 7,
+        },
+        _perception(),
+    )
+
+    assert collapsed.memory_note == "The orc hits hard!"
+    assert truncated.memory_note is not None
+    assert len(truncated.memory_note) == 200
+    assert silent.memory_note is None
+    assert numeric.memory_note is None
+
+
+def test_user_prompt_renders_memories_section() -> None:
+    memories = (
+        MemoryRecord(
+            memory_id="m1",
+            game_id="g",
+            agent_key="brix",
+            kind=MemoryKind.SEMANTIC,
+            text="The orc hits hard — stay at range.",
+            round_number=2,
+            embedding=(1.0,),
+        ),
+        MemoryRecord(
+            memory_id="m2",
+            game_id="g",
+            agent_key="brix",
+            kind=MemoryKind.EPISODIC,
+            text="Round 1: attacked Goblin and missed.",
+            round_number=1,
+            embedding=(0.5,),
+        ),
+    )
+    prompt = CharacterAgent(_PROFILE).build_user_prompt(_perception(), memories=memories)
+
+    assert "Memories:" in prompt
+    assert "- [semantic] The orc hits hard — stay at range." in prompt
+    assert "- [episodic] Round 1: attacked Goblin and missed." in prompt
+    assert prompt.count("HP") == 1  # memories never leak enemy stats
+    assert "Turn order" in prompt
+
+
+def test_user_prompt_omits_the_memories_section_when_empty() -> None:
+    prompt = CharacterAgent(_PROFILE).build_user_prompt(_perception(), memories=())
+
+    assert "Memories:" not in prompt
