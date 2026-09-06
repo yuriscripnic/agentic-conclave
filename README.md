@@ -47,5 +47,26 @@ export OPENROUTER_API_KEY=sk-or-...
 ```
 
 Model profiles (`gm`, `player`, `cheap`, `reasoning`, `creative`, `embedding`)
-are configured in `config/llm.toml`. Nothing in the game calls the gateway yet —
-the first consumer is the character agent (Plan 4).
+are configured in `config/llm.toml`. The first consumer is the AI character
+agent (`--agent llm`).
+
+## AI character agent (offline by default)
+
+`--agent llm` adds an AI-controlled party member (Brix) who decides her own
+attacks through the model gateway; the human keeps commanding Arin:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+.venv/bin/python -m interfaces.cli.app --agent llm --seed 42
+```
+
+An offline demo that never touches the network:
+
+```bash
+.venv/bin/python -m interfaces.cli.app --agent fake --seed 42
+```
+
+Agent identity, persona, and objective live in `config/agents.toml`; retry
+budgets under `[agent]`. The agent proposes, the rules engine decides —
+invalid proposals are retried with the rejection reason, then a deterministic
+fallback attack.
