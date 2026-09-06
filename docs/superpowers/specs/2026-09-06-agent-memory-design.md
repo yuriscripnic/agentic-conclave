@@ -51,6 +51,10 @@ Nothing in this plan touches `src/domain/`. Memory failures never fail a turn.
    strings/numbers) render one line: "Round 3: attacked Goblin Scout and dealt 5 damage",
    "...and missed", "... (critical)", "; Goblin Scout fell". Names resolve through the
    perception (opponents of the actor); unknown ids fall back to the raw id string.
+   Damage is attributed by summing `DamageApplied` events whose `character_id` matches
+   the attack's `target_id` (the enemy chain that follows the actor's turn also appears
+   in the same `TurnReport.events`, but enemy attacks only ever target party members,
+   so this attribution is exact for the supported action set).
    No attack event → no episodic record. Enemy-turn memories (remembering *being*
    attacked) are deferred.
 7. **Storage shape: untyped `vector`, no ANN index, embeddings NOT NULL.** The pgvector
@@ -139,8 +143,8 @@ class DeterministicEmbeddingGateway:
 # (stdlib math), most-similar first. Same append/search contract as pgvector.
 
 # pgvector_repository.py — PgvectorMemoryRepository(connection):
-#   append:  INSERT INTO agent_memories (id, game_id, agent_key, kind, text,
-#            round_number, embedding) VALUES (...::uuid, ..., %(embedding)s::vector)
+#   append:  INSERT INTO agent_memories (memory_id, game_id, agent_key, kind, text,
+#            round_number, embedding) VALUES (...::uuid, ..., %s::vector)
 #   search:  SELECT ... FROM agent_memories
 #            WHERE game_id = %s::uuid AND agent_key = %s
 #            ORDER BY embedding <=> %(query)s::vector LIMIT %s
@@ -160,16 +164,22 @@ mapping applies unchanged (429 → `ModelRateLimitedError`, 4xx → `ModelReques
 ```python
 class MemoryService:
     def __init__(self, gateway: EmbeddingGateway, repository: MemoryRepository, *,
-                 retrieval_limit: int = 5) -> None: ...
+                 model: str, retrieval_limit: int = 5) -> None: ...
 
-    def retrieve(self, perception: AgentPerception) -> tuple[MemoryRecord, ...]:
+    def retrieve(self, game_id: str, perception: AgentPerception) -> tuple[MemoryRecord, ...]:
         """Embed a situation line, search the agent's memories, top-k most relevant."""
 
-    def record_turn(self, perception: AgentPerception,
-                    decision: AgentDecision, turn_report: TurnReport) -> None:
-        """Derive episodic text from turn_report.events; semantic from
-        decision.memory_note; batch-embed (one call); append with dedup."""
+    def record_turn(self, game_id: str, perception: AgentPerception,
+                    turn_report: TurnReport, *, note: str | None = None) -> None:
+        """Derive episodic text from turn_report.events; semantic from note;
+        batch-embed (one call); append with dedup. Rejected turns write nothing."""
 ```
+
+(Plan-writing refinement, 2026-09-06: `model` is a required argument because
+`EmbeddingRequest` needs a model id and `MemoryService` is the only embed caller;
+`game_id` is an explicit argument because `AgentPerception` carries no game id;
+`record_turn` takes the note as a plain string rather than the whole `AgentDecision`
+so the fallback path — which has no decision — can record episodic memory too.)
 
 - Query text (retrieval): `"{name} the {class}; round {n}; opponents: {names}"` —
   built from the perception only (§20: no hidden state).
@@ -230,7 +240,8 @@ class AgentTurnReport:
    call of the loop. Failure (only `ModelError` / `PersistenceError`) → empty tuple;
    a failed embed's invocation, if any, still appends to the report's invocations.
 3. **Write:** only after an **accepted** turn — model or fallback:
-   `memory.record_turn(perception, decision, turn_report)` — same swallow-policy.
+   `memory.record_turn(game_id, perception, turn_report, note=decision.memory_note)`
+   (the fallback path passes `note=None`) — same swallow-policy.
    Episodic memory always records (it is derived from the executed turn's events, not
    from the model's words — a fallback attack is still the agent's experience); semantic
    records only when the accepted model decision carries a note, so rejected attempts
@@ -249,7 +260,7 @@ call site untouched.
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE agent_memories (
-    id           UUID PRIMARY KEY,
+    memory_id    UUID PRIMARY KEY,
     game_id      UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
     agent_key    TEXT NOT NULL,
     kind         TEXT NOT NULL,
