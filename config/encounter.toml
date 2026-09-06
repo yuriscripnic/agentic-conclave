@@ -1,0 +1,44 @@
+# The MVP-0 encounter (specs/2026-09-06-multi-agent-party-design.md §3.3).
+# Loaded in every CLI mode — the fight is game content, not agent configuration.
+
+[[enemies]]
+name = "Goblin Scout"
+level = 1
+strength = 8
+dexterity = 14
+constitution = 10
+intelligence = 10
+wisdom = 8
+charisma = 8
+armor_class = 13
+speed_ft = 30
+max_hp = 7
+weapon = { weapon_id = "scimitar", name = "Scimitar", damage_die_count = 1, damage_die_size = 6 }
+
+[[enemies]]
+name = "Goblin Skulker"
+level = 1
+strength = 8
+dexterity = 14
+constitution = 10
+intelligence = 10
+wisdom = 8
+charisma = 8
+armor_class = 13
+speed_ft = 30
+max_hp = 7
+weapon = { weapon_id = "scimitar", name = "Scimitar", damage_die_count = 1, damage_die_size = 6 }
+
+[[enemies]]
+name = "Orc Brute"
+level = 1
+strength = 16
+dexterity = 12
+constitution = 14
+intelligence = 7
+wisdom = 10
+charisma = 8
+armor_class = 15
+speed_ft = 30
+max_hp = 15
+weapon = { weapon_id = "greataxe", name = "Greataxe", damage_die_count = 1, damage_die_size = 12 }
