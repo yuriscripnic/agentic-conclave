@@ -71,7 +71,13 @@ def test_cli_game_on_postgres_persists_game_and_events(
     code = main(
         argv=["--db", "postgres", "--seed", "42"],
         console=console,
-        input_fn=_scripted(*(["attack goblin"] * 60)),
+        input_fn=_scripted(
+            *(
+                ["attack goblin scout"] * 30
+                + ["attack goblin skulker"] * 30
+                + ["attack orc brute"] * 60
+            )
+        ),
     )
 
     assert code == 0

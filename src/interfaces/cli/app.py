@@ -24,6 +24,7 @@ from application.commands import (
     SubmitActionCommand,
     WeaponSpec,
 )
+from application.encounter import load_encounter
 from application.game_service import GameService
 from application.views import GameView
 from domain.common.errors import DomainError, PersistenceError
@@ -110,36 +111,13 @@ def _fighter(name: str) -> AddCharacterCommand:
     )
 
 
-def _goblin() -> AddCharacterCommand:
-    return AddCharacterCommand(
-        name="Goblin",
-        character_type="enemy",
-        level=1,
-        strength=8,
-        dexterity=14,
-        constitution=10,
-        intelligence=10,
-        wisdom=8,
-        charisma=8,
-        armor_class=13,
-        speed_ft=30,
-        max_hp=7,
-        weapon=WeaponSpec(
-            weapon_id="scimitar",
-            name="Scimitar",
-            damage_die_count=1,
-            damage_die_size=6,
-        ),
-    )
-
-
-def _wire_agent(
+def _wire_party(
     service: GameService,
     game_id: GameId,
     mode: str,
     console: Console,
 ) -> AgentTurnService:
-    """Wire the agent stack and add Brix to the party before combat starts."""
+    """Wire the agent stack and add the AI party members before combat starts."""
     agent_profiles = load_agent_profiles(_CONFIG_DIR / "agents.toml")
     model_catalog = load_model_profiles(_CONFIG_DIR / "llm.toml")
     if mode == "llm":
@@ -158,23 +136,46 @@ def _wire_agent(
                 "action_type": "attack",
                 "target_id": target.id,
                 "public_message": "I attack the nearest standing foe.",
+                "party_message": "Focus the nearest standing foe.",
             }
 
         gateway = ScriptedAgentGateway(fake, _decision)
     runtime = AgentRuntime(gateway, RetryPolicy())
     agent_service = AgentTurnService(service, runtime, model_catalog, agent_profiles)
-    brix = agent_profiles.get("brix")
-    brix_id = service.add_character(game_id, _fighter(brix.character_name))
-    agent_service.register(brix_id, brix)
+    names: list[str] = []
+    for profile in agent_profiles.agents.values():
+        stats = profile.stats
+        character_id = service.add_character(
+            game_id,
+            AddCharacterCommand(
+                name=profile.character_name,
+                character_type="player",
+                character_class=profile.character_class,
+                strength=stats.strength,
+                dexterity=stats.dexterity,
+                constitution=stats.constitution,
+                intelligence=stats.intelligence,
+                wisdom=stats.wisdom,
+                charisma=stats.charisma,
+                armor_class=stats.armor_class,
+                speed_ft=stats.speed_ft,
+                max_hp=stats.max_hp,
+                weapon=stats.weapon,
+            ),
+        )
+        agent_service.register(character_id, profile)
+        names.append(profile.character_name)
     console.print(
-        f"[cyan]{brix.character_name} joins the party (AI-controlled, mode: {mode})[/cyan]"
+        f"[cyan]{', '.join(names)} join the party (AI-controlled, mode: {mode})[/cyan]"
     )
     return agent_service
 
 
 def _render_agent_turn(console: Console, report: AgentTurnReport, view: GameView) -> None:
     if report.public_message:
-        console.print(f"[cyan]Agent:[/cyan] {report.public_message}")
+        console.print(f"[cyan]{report.actor_name}:[/cyan] {report.public_message}")
+    if report.party_message:
+        console.print(f"[cyan]{report.actor_name} says:[/cyan] {report.party_message}")
     if report.proposal_source == "fallback" and report.fallback_reason:
         console.print(
             f"[yellow]Fell back to a deterministic attack: {report.fallback_reason}[/yellow]"
@@ -218,11 +219,12 @@ def main(
     agent_service: AgentTurnService | None = None
     if args.agent != "off":
         try:
-            agent_service = _wire_agent(service, game_id, args.agent, console)
+            agent_service = _wire_party(service, game_id, args.agent, console)
         except (ValueError, ModelError) as error:
             console.print(f"[red]{error}[/red]")
             return 2
-    service.add_character(game_id, _goblin())
+    for enemy_command in load_encounter(_CONFIG_DIR / "encounter.toml"):
+        service.add_character(game_id, enemy_command)
     service.start_combat(game_id)
 
     while True:

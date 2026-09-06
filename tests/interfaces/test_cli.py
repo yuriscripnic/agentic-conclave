@@ -41,7 +41,12 @@ def test_main_quit_leaves_a_created_game() -> None:
 
 def test_main_full_fight_reaches_a_winner() -> None:
     console, buffer = _console()
-    code = main(console=console, input_fn=_scripted(*(["attack goblin"] * 60)))
+    lines = (
+        ["attack goblin scout"] * 30
+        + ["attack goblin skulker"] * 30
+        + ["attack orc brute"] * 60
+    )
+    code = main(console=console, input_fn=_scripted(*lines))
     assert code == 0
     assert "wins the combat" in buffer.getvalue()
 
@@ -75,10 +80,11 @@ def test_main_agent_fake_plays_a_full_fight(monkeypatch: pytest.MonkeyPatch) -> 
     code = main(
         argv=["--agent", "fake"],
         console=console,
-        input_fn=_scripted(*(["attack goblin"] * 60)),
+        input_fn=_scripted(*(["attack orc brute"] * 60)),
     )
     assert code == 0
     output = buffer.getvalue()
+    assert "Brix, Mira, Sera join the party" in output
     assert "AI-controlled" in output
     assert "wins the combat" in output
 
@@ -90,11 +96,12 @@ def test_main_agent_fake_agent_takes_a_turn(monkeypatch: pytest.MonkeyPatch) -> 
         code = main(
             argv=["--agent", "fake", "--seed", str(seed)],
             console=console,
-            input_fn=_scripted(*(["attack goblin"] * 60)),
+            input_fn=_scripted(*(["attack orc brute"] * 60)),
         )
         assert code == 0
         output = buffer.getvalue()
-        if "Agent:" in output:
+        if "says:" in output:
+            assert "Brix, Mira, Sera join the party" in output
             assert "wins the combat" in output
             assert "AI-controlled" in output
             return
@@ -116,3 +123,16 @@ def test_main_agent_off_has_no_agent_output(monkeypatch: pytest.MonkeyPatch) -> 
     code = main(argv=[], console=console, input_fn=_scripted("/quit"))
     assert code == 0
     assert "AI-controlled" not in buffer.getvalue()
+
+
+def test_main_all_enemy_names_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(
+        console=console,
+        input_fn=_scripted(
+            "attack goblin scout", "attack goblin skulker", "attack orc brute", "/quit"
+        ),
+    )
+    assert code == 0
+    assert "No such character" not in buffer.getvalue()
