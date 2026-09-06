@@ -50,10 +50,11 @@ Model profiles (`gm`, `player`, `cheap`, `reasoning`, `creative`, `embedding`)
 are configured in `config/llm.toml`. The first consumer is the AI character
 agent (`--agent llm`).
 
-## AI character agent (offline by default)
+## AI party (offline by default)
 
-`--agent llm` adds an AI-controlled party member (Brix) who decides her own
-attacks through the model gateway; the human keeps commanding Arin:
+`--agent llm` adds three AI-controlled party members (Brix, Mira, Sera) who
+decide their own attacks through the model gateway and coordinate through
+party chatter; the human keeps commanding Arin:
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...
@@ -66,7 +67,9 @@ An offline demo that never touches the network:
 .venv/bin/python -m interfaces.cli.app --agent fake --seed 42
 ```
 
-Agent identity, persona, and objective live in `config/agents.toml`; retry
-budgets under `[agent]`. The agent proposes, the rules engine decides —
-invalid proposals are retried with the rejection reason, then a deterministic
-fallback attack.
+Agent identity, persona, objective, and statlines live in `config/agents.toml`;
+the encounter lives in `config/encounter.toml` and is loaded in every mode;
+retry budgets sit under `[agent]`. Agents may broadcast one short
+`party_message` per accepted turn; the last 8 messages join every agent's
+prompt. The agent proposes, the rules engine decides — invalid proposals are
+retried with the rejection reason, then a deterministic fallback attack.
