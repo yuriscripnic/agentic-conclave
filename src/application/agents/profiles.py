@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from application.commands import WeaponSpec
 from domain.character.character import CharacterClass
 
 
@@ -20,6 +21,22 @@ class AgentProfileNotFoundError(KeyError):
 
 
 @dataclass(frozen=True)
+class AgentStats:
+    """The character statline an agent-controlled character is created with (spec §3.2)."""
+
+    strength: int
+    dexterity: int
+    constitution: int
+    intelligence: int
+    wisdom: int
+    charisma: int
+    armor_class: int
+    speed_ft: int
+    max_hp: int
+    weapon: WeaponSpec
+
+
+@dataclass(frozen=True)
 class AgentProfile:
     name: str
     character_name: str
@@ -27,6 +44,7 @@ class AgentProfile:
     persona: str
     objective: str
     model_profile: str
+    stats: AgentStats
 
 
 @dataclass(frozen=True)
@@ -39,6 +57,51 @@ class AgentProfileCatalog:
             return self.agents[name]
         except KeyError:
             raise AgentProfileNotFoundError(f"unknown agent profile: {name}") from None
+
+
+_STAT_INT_FIELDS = (
+    "strength",
+    "dexterity",
+    "constitution",
+    "intelligence",
+    "wisdom",
+    "charisma",
+    "armor_class",
+    "speed_ft",
+    "max_hp",
+)
+
+
+def _positive_int(table: Mapping[str, Any], key: str, where: str) -> int:
+    value = table.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise AgentProfileError(f"{where} {key} must be an int >= 1")
+    return value
+
+
+def _load_stats(agent_table: Mapping[str, Any], name: str) -> AgentStats:
+    where = f"[agents.{name}]"
+    stats = agent_table.get("stats")
+    if not isinstance(stats, dict):
+        raise AgentProfileError(f"{where} stats must be a table")
+    values = {field: _positive_int(stats, field, where) for field in _STAT_INT_FIELDS}
+    weapon_where = f"{where} stats.weapon"
+    weapon = stats.get("weapon")
+    if not isinstance(weapon, dict):
+        raise AgentProfileError(f"{weapon_where} must be a table")
+    for key in ("weapon_id", "name"):
+        value = weapon.get(key)
+        if not isinstance(value, str) or not value:
+            raise AgentProfileError(f"{weapon_where}.{key} must be a non-empty string")
+    return AgentStats(
+        **values,
+        weapon=WeaponSpec(
+            weapon_id=weapon["weapon_id"],
+            name=weapon["name"],
+            damage_die_count=_positive_int(weapon, "damage_die_count", weapon_where),
+            damage_die_size=_positive_int(weapon, "damage_die_size", weapon_where),
+        ),
+    )
 
 
 def load_agent_profiles(path: str | Path) -> AgentProfileCatalog:
@@ -85,6 +148,7 @@ def load_agent_profiles(path: str | Path) -> AgentProfileCatalog:
             persona=entry["persona"],
             objective=entry["objective"],
             model_profile=entry["model_profile"],
+            stats=_load_stats(entry, name),
         )
 
     return AgentProfileCatalog(max_action_retries=retries, agents=agents)

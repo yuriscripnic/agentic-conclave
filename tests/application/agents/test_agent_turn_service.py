@@ -9,7 +9,7 @@ from ai.models.fake import FakeModelGateway
 from ai.models.profiles import ModelProfile, ModelProfileCatalog
 from application.agents.agent_turn_service import AgentNotRegisteredError, AgentTurnService
 from application.agents.fake_script import ScriptedAgentGateway
-from application.agents.profiles import AgentProfile, AgentProfileCatalog
+from application.agents.profiles import AgentProfile, AgentProfileCatalog, AgentStats
 from application.commands import (
     AddCharacterCommand,
     CreateGameCommand,
@@ -34,6 +34,23 @@ _MODEL_CATALOG = ModelProfileCatalog(
     },
     pricing={},
 )
+_BRIX_STATS = AgentStats(
+    strength=16,
+    dexterity=13,
+    constitution=15,
+    intelligence=10,
+    wisdom=12,
+    charisma=9,
+    armor_class=16,
+    speed_ft=30,
+    max_hp=12,
+    weapon=WeaponSpec(
+        weapon_id="longsword",
+        name="Longsword",
+        damage_die_count=1,
+        damage_die_size=8,
+    ),
+)
 _BRIX = AgentProfile(
     name="brix",
     character_name="Brix",
@@ -41,6 +58,7 @@ _BRIX = AgentProfile(
     persona="A cautious sellsword.",
     objective="Engage the nearest threat.",
     model_profile="player",
+    stats=_BRIX_STATS,
 )
 
 

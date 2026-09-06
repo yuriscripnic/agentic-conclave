@@ -12,9 +12,28 @@ from application.agents.character_agent import (
     InvalidAgentDecisionError,
 )
 from application.agents.perception import AgentPerception, OpponentBrief
-from application.agents.profiles import AgentProfile
+from application.agents.profiles import AgentProfile, AgentStats
+from application.commands import WeaponSpec
 from application.views import CharacterView
 from domain.common.ids import CharacterId
+
+_STATS = AgentStats(
+    strength=16,
+    dexterity=13,
+    constitution=15,
+    intelligence=10,
+    wisdom=12,
+    charisma=9,
+    armor_class=16,
+    speed_ft=30,
+    max_hp=12,
+    weapon=WeaponSpec(
+        weapon_id="longsword",
+        name="Longsword",
+        damage_die_count=1,
+        damage_die_size=8,
+    ),
+)
 
 _PROFILE = AgentProfile(
     name="brix",
@@ -23,6 +42,7 @@ _PROFILE = AgentProfile(
     persona="A cautious sellsword who prefers finishing fights quickly and safely.",
     objective="Survive the skirmish and protect Arin; engage the nearest threat.",
     model_profile="player",
+    stats=_STATS,
 )
 
 
