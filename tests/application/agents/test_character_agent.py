@@ -11,6 +11,7 @@ from application.agents.character_agent import (
     CharacterAgent,
     InvalidAgentDecisionError,
 )
+from application.agents.party_board import PartyMessage
 from application.agents.perception import AgentPerception, OpponentBrief
 from application.agents.profiles import AgentProfile, AgentStats
 from application.commands import WeaponSpec
@@ -159,3 +160,99 @@ def test_schema_rejects_extra_keys_and_other_actions() -> None:
             {"action_type": "cast_spell", "target_id": "gob", "public_message": "x"},
             ATTACK_DECISION_SCHEMA,
         )
+
+
+def test_schema_allows_optional_party_message() -> None:
+    validate_against_schema(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "x",
+            "party_message": "Focus the orc.",
+        },
+        ATTACK_DECISION_SCHEMA,
+    )  # does not raise
+
+
+def test_schema_rejects_non_string_party_message() -> None:
+    with pytest.raises(ModelInvalidResponseError):
+        validate_against_schema(
+            {
+                "action_type": "attack",
+                "target_id": "gob",
+                "public_message": "x",
+                "party_message": 3,
+            },
+            ATTACK_DECISION_SCHEMA,
+        )
+
+
+def test_map_decision_missing_or_blank_party_message_is_silence() -> None:
+    agent = CharacterAgent(_PROFILE)
+    silent = agent.map_decision(
+        {"action_type": "attack", "target_id": "gob", "public_message": "hi"},
+        _perception(),
+    )
+    blank = agent.map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "party_message": "  ",
+        },
+        _perception(),
+    )
+    assert silent.party_message is None
+    assert blank.party_message is None
+
+
+def test_map_decision_non_string_party_message_is_silence() -> None:
+    decision = CharacterAgent(_PROFILE).map_decision(
+        {"action_type": "attack", "target_id": "gob", "public_message": "hi", "party_message": 7},
+        _perception(),
+    )
+    assert decision.party_message is None
+
+
+def test_map_decision_collapses_newlines_and_strips() -> None:
+    decision = CharacterAgent(_PROFILE).map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "party_message": "  Focus\nthe orc!\n",
+        },
+        _perception(),
+    )
+    assert decision.party_message == "Focus the orc!"
+
+
+def test_map_decision_truncates_to_200_chars() -> None:
+    decision = CharacterAgent(_PROFILE).map_decision(
+        {
+            "action_type": "attack",
+            "target_id": "gob",
+            "public_message": "hi",
+            "party_message": "x" * 500,
+        },
+        _perception(),
+    )
+    assert decision.party_message is not None
+    assert len(decision.party_message) == 200
+
+
+def test_user_prompt_renders_party_chatter() -> None:
+    chatter = (
+        PartyMessage(actor_name="Mira", text="The goblin bleeds — finish it.", round_number=1),
+        PartyMessage(actor_name="Sera", text="Watch the orc.", round_number=1),
+    )
+    prompt = CharacterAgent(_PROFILE).build_user_prompt(_perception(), party_messages=chatter)
+    assert "Party chatter:" in prompt
+    assert "- Mira (round 1): The goblin bleeds — finish it." in prompt
+    assert "- Sera (round 1): Watch the orc." in prompt
+    assert prompt.count("HP") == 1  # chatter never leaks enemy stats
+
+
+def test_user_prompt_omits_chatter_section_when_empty() -> None:
+    prompt = CharacterAgent(_PROFILE).build_user_prompt(_perception(), party_messages=())
+    assert "Party chatter:" not in prompt
