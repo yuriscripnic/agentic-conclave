@@ -706,7 +706,7 @@ import pytest
 from application.commands import AddCharacterCommand, WeaponSpec
 from application.encounter import EncounterError, load_encounter
 
-_SHIPPED = Path(__file__).resolve().parents[3] / "config" / "encounter.toml"
+_SHIPPED = Path(__file__).resolve().parents[2] / "config" / "encounter.toml"
 
 _VALID = """\
 [[enemies]]
