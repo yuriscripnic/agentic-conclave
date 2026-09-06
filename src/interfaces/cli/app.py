@@ -6,9 +6,18 @@ import argparse
 import os
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from rich.console import Console
 
+from ai.agents.retry import RetryPolicy
+from ai.agents.runtime import AgentRuntime
+from ai.models.errors import ModelError
+from ai.models.fake import FakeModelGateway
+from ai.models.profiles import load_model_profiles
+from application.agents.agent_turn_service import AgentTurnReport, AgentTurnService
+from application.agents.fake_script import ScriptedAgentGateway
+from application.agents.profiles import load_agent_profiles
 from application.commands import (
     AddCharacterCommand,
     CreateGameCommand,
@@ -20,6 +29,7 @@ from application.views import GameView
 from domain.common.errors import DomainError, PersistenceError
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
+from infrastructure.llm import create_gateway
 from infrastructure.persistence.in_memory import InMemoryGameRepository
 from infrastructure.persistence.postgres.connection import connect
 from infrastructure.persistence.postgres.migrate import run_migrations
@@ -28,6 +38,8 @@ from infrastructure.persistence.postgres.repository import (
     PostgresGameRepository,
 )
 from interfaces.cli.renderer import render_game_view, render_report
+
+_CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
 
 def parse_input(raw: str) -> tuple[str, str]:
@@ -74,9 +86,9 @@ def _is_enemy(view: GameView, character_id: str) -> bool:
     return any(member.id == character_id for member in view.enemies)
 
 
-def _arin() -> AddCharacterCommand:
+def _fighter(name: str) -> AddCharacterCommand:
     return AddCharacterCommand(
-        name="Arin",
+        name=name,
         character_type="player",
         character_class="fighter",
         level=1,
@@ -121,6 +133,59 @@ def _goblin() -> AddCharacterCommand:
     )
 
 
+def _wire_agent(
+    service: GameService,
+    game_id: GameId,
+    mode: str,
+    console: Console,
+) -> AgentTurnService:
+    """Wire the agent stack and add Brix to the party before combat starts."""
+    agent_profiles = load_agent_profiles(_CONFIG_DIR / "agents.toml")
+    model_catalog = load_model_profiles(_CONFIG_DIR / "llm.toml")
+    if mode == "llm":
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY is not set; export it to run with --agent llm")
+        gateway = create_gateway(model_catalog.default_provider, api_key=api_key)
+    else:
+        fake = FakeModelGateway()
+
+        def _decision() -> dict[str, str]:
+            view = service.get_view(game_id)
+            living = [enemy for enemy in view.enemies if not enemy.is_defeated]
+            target = living[0] if living else view.enemies[0]
+            return {
+                "action_type": "attack",
+                "target_id": target.id,
+                "public_message": "I attack the nearest standing foe.",
+            }
+
+        gateway = ScriptedAgentGateway(fake, _decision)
+    runtime = AgentRuntime(gateway, RetryPolicy())
+    agent_service = AgentTurnService(service, runtime, model_catalog, agent_profiles)
+    brix = agent_profiles.get("brix")
+    brix_id = service.add_character(game_id, _fighter(brix.character_name))
+    agent_service.register(brix_id, brix)
+    console.print(
+        f"[cyan]{brix.character_name} joins the party (AI-controlled, mode: {mode})[/cyan]"
+    )
+    return agent_service
+
+
+def _render_agent_turn(console: Console, report: AgentTurnReport, view: GameView) -> None:
+    if report.public_message:
+        console.print(f"[cyan]Agent:[/cyan] {report.public_message}")
+    if report.proposal_source == "fallback" and report.fallback_reason:
+        console.print(
+            f"[yellow]Fell back to a deterministic attack: {report.fallback_reason}[/yellow]"
+        )
+    console.print(
+        f"[dim]agent {report.actor_id} — source: {report.proposal_source}, "
+        f"attempts: {report.action_attempts}, llm calls: {len(report.invocations)}[/dim]"
+    )
+    render_report(console, report.turn_report, view)
+
+
 def main(
     argv: list[str] | None = None,
     console: Console | None = None,
@@ -130,6 +195,12 @@ def main(
     parser = argparse.ArgumentParser(prog="conclave")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--db", choices=("memory", "postgres"), default="memory")
+    parser.add_argument(
+        "--agent",
+        choices=("off", "llm", "fake"),
+        default="off",
+        help="add an AI-controlled party member (off | llm | fake)",
+    )
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
@@ -143,7 +214,14 @@ def main(
             return 2
 
     game_id = service.create_game(CreateGameCommand(seed=args.seed))
-    service.add_character(game_id, _arin())
+    service.add_character(game_id, _fighter("Arin"))
+    agent_service: AgentTurnService | None = None
+    if args.agent != "off":
+        try:
+            agent_service = _wire_agent(service, game_id, args.agent, console)
+        except (ValueError, ModelError) as error:
+            console.print(f"[red]{error}[/red]")
+            return 2
     service.add_character(game_id, _goblin())
     service.start_combat(game_id)
 
@@ -161,6 +239,24 @@ def main(
         ):
             report = service.run_active_enemy_turns(game_id)
             render_report(console, report, view)
+            continue
+
+        if (
+            agent_service is not None
+            and view.combat is not None
+            and view.combat.status == "active"
+            and view.combat.active_actor_id is not None
+            and agent_service.is_agent_controlled(CharacterId(view.combat.active_actor_id))
+        ):
+            try:
+                agent_report = agent_service.take_turn(
+                    GameId(view.game_id),
+                    CharacterId(view.combat.active_actor_id),
+                )
+            except DomainError as error:
+                console.print(f"[red]{error}[/red]")
+                continue
+            _render_agent_turn(console, agent_report, view)
             continue
 
         try:

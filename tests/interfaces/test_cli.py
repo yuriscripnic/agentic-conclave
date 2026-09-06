@@ -67,3 +67,52 @@ def test_build_service_rejects_unknown_backend() -> None:
 
     with pytest.raises(ValueError, match="unknown database backend"):
         build_service("oracle")
+
+
+def test_main_agent_fake_plays_a_full_fight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(
+        argv=["--agent", "fake"],
+        console=console,
+        input_fn=_scripted(*(["attack goblin"] * 60)),
+    )
+    assert code == 0
+    output = buffer.getvalue()
+    assert "AI-controlled" in output
+    assert "wins the combat" in output
+
+
+def test_main_agent_fake_agent_takes_a_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    for seed in range(1, 60):
+        console, buffer = _console()
+        code = main(
+            argv=["--agent", "fake", "--seed", str(seed)],
+            console=console,
+            input_fn=_scripted(*(["attack goblin"] * 60)),
+        )
+        assert code == 0
+        output = buffer.getvalue()
+        if "Agent:" in output:
+            assert "wins the combat" in output
+            assert "AI-controlled" in output
+            return
+    pytest.fail("no seed in 1..59 gave the agent a turn before the fight ended")
+
+
+def test_main_agent_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(argv=["--agent", "llm"], console=console, input_fn=_scripted())
+    assert code == 2
+    assert "OPENROUTER_API_KEY" in buffer.getvalue()
+
+
+def test_main_agent_off_has_no_agent_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(argv=[], console=console, input_fn=_scripted("/quit"))
+    assert code == 0
+    assert "AI-controlled" not in buffer.getvalue()
