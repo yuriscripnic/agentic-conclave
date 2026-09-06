@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 
+from ai.memory.types import EmbeddingRequest, EmbeddingResponse
 from ai.models.errors import (
     MissingAPIKeyError,
     ModelError,
@@ -71,7 +72,7 @@ class OpenRouterModelGateway:
             body, content = await self._execute(request, "generate")
         except ModelError as exc:
             raise self._with_invocation(
-                request, "generate", started, request_id, exc
+                request.model, "generate", started, request_id, exc
             ) from exc
         usage = self._usage(body)
         model = str(body.get("model", request.model))
@@ -105,7 +106,7 @@ class OpenRouterModelGateway:
             data = self._structured_data(content, schema)
         except ModelError as exc:
             raise self._with_invocation(
-                request, "generate_structured", started, request_id, exc
+                request.model, "generate_structured", started, request_id, exc
             ) from exc
         usage = self._usage(body)
         model = str(body.get("model", request.model))
@@ -129,6 +130,35 @@ class OpenRouterModelGateway:
             invocation=invocation,
         )
 
+    async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
+        """Embed a batch of texts via the OpenAI-compatible /embeddings endpoint."""
+        started = time.perf_counter()
+        request_id = uuid.uuid4().hex
+        try:
+            body, vectors = await self._execute_embeddings(request)
+        except ModelError as exc:
+            raise self._with_invocation(
+                request.model, "embed", started, request_id, exc
+            ) from exc
+        usage = Usage(
+            input_tokens=int((body.get("usage") or {}).get("prompt_tokens", 0)),
+            output_tokens=0,
+        )
+        model = str(body.get("model", request.model))
+        invocation = LLMInvocation(
+            provider="openrouter",
+            model=model,
+            operation="embed",
+            status="ok",
+            error_kind=None,
+            latency_ms=self._latency_ms(started),
+            input_tokens=usage.input_tokens,
+            output_tokens=0,
+            estimated_cost_usd=self._cost(model, usage),
+            request_id=request_id,
+        )
+        return EmbeddingResponse(vectors=vectors, usage=usage, invocation=invocation)
+
     @staticmethod
     def _structured_data(content: str, schema: Mapping[str, Any]) -> dict[str, Any]:
         try:
@@ -144,7 +174,7 @@ class OpenRouterModelGateway:
 
     def _with_invocation(
         self,
-        request: ModelRequest,
+        model: str,
         operation: str,
         started: float,
         request_id: str,
@@ -153,7 +183,7 @@ class OpenRouterModelGateway:
         status = "timeout" if isinstance(exc, ModelTimeoutError) else "error"
         exc.invocation = LLMInvocation(
             provider="openrouter",
-            model=request.model,
+            model=model,
             operation=operation,
             status=status,
             error_kind=_error_kind(exc),
@@ -170,13 +200,58 @@ class OpenRouterModelGateway:
     ) -> tuple[dict[str, Any], str]:
         payload = self._payload(request, operation)
         try:
-            response = await self._post(request, payload)
+            response = await self._post(
+                f"{self._base_url}/chat/completions",
+                payload,
+                request.timeout_seconds,
+            )
         except httpx.TimeoutException as exc:
             raise ModelTimeoutError(f"OpenRouter request timed out: {exc}") from exc
         except httpx.HTTPError as exc:
             raise ModelError(f"OpenRouter transport error: {exc}") from exc
         body = self._body(response)
         return body, self._content(body)
+
+    async def _execute_embeddings(
+        self, request: EmbeddingRequest
+    ) -> tuple[dict[str, Any], tuple[tuple[float, ...], ...]]:
+        payload = {"model": request.model, "input": list(request.texts)}
+        try:
+            response = await self._post(
+                f"{self._base_url}/embeddings", payload, request.timeout_seconds
+            )
+        except httpx.TimeoutException as exc:
+            raise ModelTimeoutError(f"OpenRouter request timed out: {exc}") from exc
+        except httpx.HTTPError as exc:
+            raise ModelError(f"OpenRouter transport error: {exc}") from exc
+        body = self._body(response)
+        return body, self._embedding_vectors(body, len(request.texts))
+
+    @staticmethod
+    def _embedding_vectors(
+        body: dict[str, Any], expected: int
+    ) -> tuple[tuple[float, ...], ...]:
+        data = body.get("data")
+        if not isinstance(data, list):
+            raise ModelInvalidResponseError("OpenRouter returned no embedding data")
+        if len(data) != expected:
+            raise ModelInvalidResponseError(
+                f"OpenRouter returned {len(data)} embeddings for {expected} input(s)"
+            )
+        vectors: list[tuple[float, ...]] = []
+        for entry in data:
+            raw = entry.get("embedding") if isinstance(entry, dict) else None
+            if not isinstance(raw, list) or not raw:
+                raise ModelInvalidResponseError(
+                    "OpenRouter returned a malformed embedding"
+                )
+            try:
+                vectors.append(tuple(float(value) for value in raw))
+            except (TypeError, ValueError) as exc:
+                raise ModelInvalidResponseError(
+                    "OpenRouter returned a non-numeric embedding"
+                ) from exc
+        return tuple(vectors)
 
     def _payload(self, request: ModelRequest, operation: str) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -194,15 +269,14 @@ class OpenRouterModelGateway:
         return payload
 
     async def _post(
-        self, request: ModelRequest, payload: dict[str, Any]
+        self, url: str, payload: dict[str, Any], timeout_seconds: float
     ) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         if self._app_url is not None:
             headers["HTTP-Referer"] = self._app_url
         if self._app_title is not None:
             headers["X-Title"] = self._app_title
-        timeout = httpx.Timeout(request.timeout_seconds)
-        url = f"{self._base_url}/chat/completions"
+        timeout = httpx.Timeout(timeout_seconds)
         if self._client is not None:
             return await self._client.post(
                 url, json=payload, headers=headers, timeout=timeout
