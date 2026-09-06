@@ -1,0 +1,9 @@
+[agent]
+max_action_retries = 2
+
+[agents.brix]
+character_name = "Brix"
+character_class = "fighter"
+persona = "A cautious sellsword who prefers finishing fights quickly and safely."
+objective = "Survive the skirmish and protect Arin; engage the nearest threat."
+model_profile = "player"
