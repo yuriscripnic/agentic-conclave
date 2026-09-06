@@ -1873,6 +1873,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/interfaces/cli/app.py` (exact edits below)
 - Modify: `tests/interfaces/test_cli.py` (3 test updates + 1 new test)
+- Modify: `tests/integration/test_postgres_wiring.py` (scripted input targets the configured
+  enemy names — same rule as the CLI test; found during execution)
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–5; `load_encounter` from `application.encounter` (Task 3); `profile.stats` (Task 2); `report.actor_name`/`report.party_message` (Task 5).
@@ -1892,9 +1894,9 @@ with:
 
 ```python
     lines = (
-        ["attack goblin scout"] * 30,
-        ["attack goblin skulker"] * 30,
-        ["attack orc brute"] * 60,
+        ["attack goblin scout"] * 30
+        + ["attack goblin skulker"] * 30
+        + ["attack orc brute"] * 60
     )
     code = main(console=console, input_fn=_scripted(*lines))
 ```
