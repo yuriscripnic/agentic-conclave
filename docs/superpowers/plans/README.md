@@ -12,15 +12,20 @@ Multi-Agent RPG. Plans are derived from, and must not contradict:
 Each plan produces working, testable software on its own and follows the phase order
 mandated by the Implementation Plan document.
 
+> **Numbering note:** session shorthand for the 2026-09-06 work called the party
+> plan "Plan 5" and the agent-memory plan "Plan 6". The canonical numbers are the
+> table rows below (party = #6, memory = #7); the Status column is the authority
+> on what has shipped.
+
 | # | Plan file | Covers (Implementation Plan doc) | Status |
 |---|-----------|----------------------------------|--------|
 | 1 | `2026-09-03-deterministic-core-mvp0.md` | Phases 0–7 — Repository bootstrap, domain primitives, dice, checks, actions, combat, events, first playable CLI (**MVP-0**) | Complete |
 | 2 | `2026-09-04-persistence-postgres.md` | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Complete |
 | 3 | `2026-09-04-model-gateway.md` | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Complete |
-| 4 | *character-agent* | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Not written |
+| 4 | `2026-09-05-character-agent.md` | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Complete |
 | 5 | *gm-agent* | Phase 13 — GM agent with narration + world tools behind the rules engine | Not written |
-| 6 | *multi-agent-party* | Phase 14 — dynamic party, agent scheduler, public party communication | Not written |
-| 7 | *memory* | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Not written |
+| 6 | `2026-09-06-multi-agent-party.md` | Phase 14 — dynamic party, agent scheduler, public party communication | Complete |
+| 7 | `2026-09-06-agent-memory-pgvector.md` | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Complete |
 | 8 | *observability* | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Not written |
 | 9 | *evaluation* | Phase 18 — repeatable evaluation scenarios and metrics | Not written |
 | 10 | *web-api* | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Not written |
