@@ -23,7 +23,7 @@ mandated by the Implementation Plan document.
 | 2 | `2026-09-04-persistence-postgres.md` | Phase 8 — PostgreSQL repositories, transactions, optimistic locking | Complete |
 | 3 | `2026-09-04-model-gateway.md` | Phases 9–10 — `ModelGateway` abstraction + `FakeModelGateway`, model profiles, OpenRouter adapter | Complete |
 | 4 | `2026-09-05-character-agent.md` | Phases 11–12 — first character agent, decision pipeline, bounded retry, deterministic fallback | Complete |
-| 5 | *gm-agent* | Phase 13 — GM agent with narration + world tools behind the rules engine | Not written |
+| 5 | `2026-09-08-gm-agent.md` | Phase 13 — GM agent with narration + NPC talk behind the rules engine (`--gm off\|llm\|fake`, notable-events cadence, `say` verb) | Complete |
 | 6 | `2026-09-06-multi-agent-party.md` | Phase 14 — dynamic party, agent scheduler, public party communication | Complete |
 | 7 | `2026-09-06-agent-memory-pgvector.md` | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Complete |
 | 8 | *observability* | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Not written |
