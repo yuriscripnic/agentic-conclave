@@ -18,7 +18,7 @@ def test_initial_migration_creates_tables_and_is_recorded(postgres_url: str) -> 
             """
         ).fetchall()
     }
-    assert {"games", "game_events", "schema_migrations"} <= tables
+    assert {"games", "game_events", "schema_migrations", "llm_invocations"} <= tables
 
     applied = [
         row["version"]
@@ -26,7 +26,7 @@ def test_initial_migration_creates_tables_and_is_recorded(postgres_url: str) -> 
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
     ]
-    assert applied == [1, 2]
+    assert applied == [1, 2, 3]
     connection.close()
 
 
@@ -41,7 +41,7 @@ def test_applying_migrations_twice_is_idempotent(postgres_url: str) -> None:
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
     ]
-    assert applied == [1, 2]
+    assert applied == [1, 2, 3]
     connection.close()
 
 
