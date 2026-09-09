@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from application.gm.conversation import GmMessage
 from application.gm.profiles import GmProfile
 from application.views import GameView, TurnReport
 from domain.events.collector import EventEnvelope
@@ -114,3 +115,59 @@ def _clean_text(raw: Any, max_chars: int) -> str | None:
     if not collapsed:
         return None
     return collapsed[:max_chars]
+
+
+_TASK_INSTRUCTIONS: dict[str, str] = {
+    "narrate_open": "Narrate the opening of the fight in at most two sentences.",
+    "react_to_events": (
+        "Narrate a short reaction to the notable events in at most two sentences."
+    ),
+    "respond_to_player": (
+        "Reply as the most fitting living enemy (set npc_reply and addressed_to), "
+        "then at most one short narration sentence. Omit npc_reply and addressed_to "
+        "entirely when no enemy would answer."
+    ),
+}
+
+
+def build_gm_context(
+    profile: GmProfile,
+    view: GameView,
+    digest: list[str],
+    history: tuple[GmMessage, ...],
+    task: str,
+) -> tuple[str, str]:
+    """Assemble the GM prompt (spec D7): persona + hard rules, scene + digest + history."""
+    if task not in _TASK_INSTRUCTIONS:
+        raise ValueError(f"unknown GM task: {task!r}")
+    system = (
+        f"You are {profile.name}, the Game Master of a D&D-style skirmish.\n"
+        f"Style: {profile.style}\n"
+        "Hard rules:\n"
+        "- Restate only what the scene roster, notable-event digest, and conversation "
+        "contain; never invent dice results, damage numbers, HP, or outcomes.\n"
+        "- Never propose or execute game actions; you narrate and speak for enemies only.\n"
+        "- Keep it short and concrete."
+    )
+    user_parts = [f"Task: {task}", "Scene:", *_roster_lines(view)]
+    if digest:
+        user_parts.append("Notable events:")
+        user_parts.extend(f"- {line}" for line in digest)
+    if history:
+        user_parts.append("Conversation so far:")
+        user_parts.extend(
+            f"- {message.speaker}: {message.text}" for message in history
+        )
+    user_parts.append(_TASK_INSTRUCTIONS[task])
+    return system, "\n".join(user_parts)
+
+
+def _roster_lines(view: GameView) -> list[str]:
+    lines: list[str] = []
+    for member in (*view.party, *view.enemies):
+        if member.is_defeated:
+            state = "defeated"
+        else:
+            state = f"{member.hp_current}/{member.hp_max} HP"
+        lines.append(f"- {member.name} ({member.character_class or '?'}): {state}")
+    return lines
