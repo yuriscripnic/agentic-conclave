@@ -94,3 +94,24 @@ Memory is bookkeeping, never a gate: retrieval or embedding failures degrade to
 an empty memory for that turn and the game continues (CLAUDE.md §28, §66).
 Memory contents are private context and are never logged or displayed outside
 the owning agent's own prompt (§20, §34).
+
+## The Game Master (offline by default)
+
+The GM is an AI narrator: it opens the fight with a short scene-setting line,
+reacts to notable events (critical hits, defeats, combat end), and answers
+`say <text>` in the voice of the most fitting living enemy. It never mutates
+game state — the rules engine stays the sole authority (LLMs propose; the
+domain decides).
+
+```bash
+# Deterministic offline demo: scripted agents + scripted GM (both defaults)
+.venv/bin/python -c "import sys; from interfaces.cli.app import main; sys.exit(main(sys.argv[1:]))"
+
+# Real models via OpenRouter (--agent llm --gm llm; [profiles.gm] in config/llm.toml)
+export OPENROUTER_API_KEY=...   # shell only; never commit keys
+.venv/bin/python -c "import sys; from interfaces.cli.app import main; sys.exit(main(sys.argv[1:]))" --agent llm --gm llm
+```
+
+- `--gm off|llm|fake` — default `fake` (offline by default, like `--agent`).
+- Persona and caps live in `config/gm.toml`; model selection in `config/llm.toml` (`[profiles.gm]`).
+- GM failures never gate the game: a failed call simply prints nothing.

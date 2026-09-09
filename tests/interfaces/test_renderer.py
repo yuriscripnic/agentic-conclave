@@ -3,6 +3,7 @@ from io import StringIO
 
 from rich.console import Console
 
+from application.gm.director import GmResult
 from application.views import (
     CharacterView,
     CombatView,
@@ -11,7 +12,7 @@ from application.views import (
 )
 from domain.common.ids import EventId, GameId
 from domain.events.collector import EventEnvelope
-from interfaces.cli.renderer import describe_event, render_game_view
+from interfaces.cli.renderer import describe_event, render_game_view, render_gm_result
 
 
 def _console() -> tuple[Console, StringIO]:
@@ -158,3 +159,23 @@ def test_undescribed_events_return_none() -> None:
         )
         is None
     )
+
+
+def test_render_gm_result_prints_reply_and_narration() -> None:
+    console, buffer = _console()
+    result = GmResult(
+        narration="The fight begins.",
+        npc_reply="Fresh meat!",
+        addressed_to="Orc Brute",
+    )
+    render_gm_result(console, result, _view())
+    output = buffer.getvalue()
+    assert "Orc Brute:" in output
+    assert "Fresh meat!" in output
+    assert "The fight begins." in output
+
+
+def test_render_gm_result_prints_nothing_for_an_empty_result() -> None:
+    console, buffer = _console()
+    render_gm_result(console, GmResult(), _view())
+    assert buffer.getvalue().strip() == ""

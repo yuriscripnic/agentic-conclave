@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from application.gm.director import GmResult
 from application.views import CharacterView, GameView, TurnReport
 from domain.events.collector import EventEnvelope
 
@@ -113,3 +114,15 @@ def describe_event(
         )
     # initiative_rolled / game_* / turn_* / attack_requested events stay silent
     return None
+
+
+def render_gm_result(console: Console, result: GmResult, view: GameView) -> None:
+    """Render GM narration/NPC replies; prints nothing for an empty GmResult (D10).
+
+    `view` is reserved for future scene-aware styling (spec §3.6).
+    """
+    if result.npc_reply is not None:
+        speaker = result.addressed_to or "gm"
+        console.print(f"[magenta]{speaker}:[/magenta] {result.npc_reply}")
+    if result.narration is not None:
+        console.print(f"[dim italic]{result.narration}[/dim italic]")

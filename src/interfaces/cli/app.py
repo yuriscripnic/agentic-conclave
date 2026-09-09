@@ -18,7 +18,7 @@ from ai.models.errors import ModelError
 from ai.models.fake import FakeModelGateway
 from ai.models.profiles import load_model_profiles
 from application.agents.agent_turn_service import AgentTurnReport, AgentTurnService
-from application.agents.fake_script import ScriptedAgentGateway
+from application.agents.fake_script import ScriptedAgentGateway, ScriptedGmGateway
 from application.agents.profiles import load_agent_profiles
 from application.commands import (
     AddCharacterCommand,
@@ -28,8 +28,11 @@ from application.commands import (
 )
 from application.encounter import load_encounter
 from application.game_service import GameService
+from application.gm.conversation import GmConversation
+from application.gm.director import GmDirector
+from application.gm.profiles import load_gm_profile
 from application.memory.memory_service import MemoryService
-from application.views import GameView
+from application.views import GameView, TurnReport
 from domain.common.errors import DomainError, PersistenceError
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
@@ -43,7 +46,7 @@ from infrastructure.persistence.postgres.repository import (
     PostgresEventRepository,
     PostgresGameRepository,
 )
-from interfaces.cli.renderer import render_game_view, render_report
+from interfaces.cli.renderer import render_game_view, render_gm_result, render_report
 
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
 
@@ -57,6 +60,8 @@ def parse_input(raw: str) -> tuple[str, str]:
     parts = stripped.split(None, 1)
     if parts[0].lower() == "attack" and len(parts) == 2:
         return ("attack", parts[1].strip())
+    if parts[0].lower() == "say" and len(parts) == 2:
+        return ("say", parts[1].strip())
     return ("unknown", stripped)
 
 
@@ -94,6 +99,45 @@ def _memory_repository(db: str) -> MemoryRepository:
             )
         return PgvectorMemoryRepository(connect(database_url))
     raise ValueError(f"unknown database backend: {db!r}")
+
+
+def _gm_decision(prompt: str) -> dict[str, str]:
+    """Deterministic GM responses for --gm fake, keyed off the task marker (§3.7)."""
+    if "Task: respond_to_player" in prompt:
+        return {
+            "narration": "The orc shifts its grip on the greataxe and considers you.",
+            "npc_reply": "Talk is for the weak. Say your last words!",
+            "addressed_to": "Orc Brute",
+        }
+    if "Task: react_to_events" in prompt:
+        return {"narration": "Steel rings through the ravine as another foe falls."}
+    return {"narration": "Two goblins and an orc brute block the pass. The fight begins."}
+
+
+def _wire_gm(service: GameService, mode: str) -> GmDirector:
+    """Wire the GM director off the shipped gm.toml persona (spec D9)."""
+    profile = load_gm_profile(_CONFIG_DIR / "gm.toml")
+    model_catalog = load_model_profiles(_CONFIG_DIR / "llm.toml")
+    if mode == "llm":
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY is not set; export it to run with --gm llm")
+        gateway = create_gateway(model_catalog.default_provider, api_key=api_key)
+    else:
+        gateway = ScriptedGmGateway(FakeModelGateway(), _gm_decision)
+    runtime = AgentRuntime(gateway, RetryPolicy())
+    return GmDirector(service, runtime, model_catalog, profile, GmConversation())
+
+
+def _gm_react(
+    console: Console, gm_service: GmDirector | None, report: TurnReport
+) -> None:
+    """React to a finished turn report; prints nothing when nothing is notable."""
+    if gm_service is None:
+        return
+    result = gm_service.on_turn_report(GameId(report.game_id), report)
+    if result is not None:
+        render_gm_result(console, result, report.view)
 
 
 def _resolve_target(view: GameView, token: str) -> str | None:
@@ -235,6 +279,12 @@ def main(
         default="off",
         help="add an AI-controlled party member (off | llm | fake)",
     )
+    parser.add_argument(
+        "--gm",
+        choices=("off", "llm", "fake"),
+        default="fake",
+        help="enable the AI Game Master narrator (off | llm | fake)",
+    )
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
@@ -256,9 +306,20 @@ def main(
         except (ValueError, ModelError) as error:
             console.print(f"[red]{error}[/red]")
             return 2
+    gm_service: GmDirector | None = None
+    if args.gm != "off":
+        try:
+            gm_service = _wire_gm(service, args.gm)
+        except (ValueError, ModelError) as error:
+            console.print(f"[red]{error}[/red]")
+            return 2
     for enemy_command in load_encounter(_CONFIG_DIR / "encounter.toml"):
         service.add_character(game_id, enemy_command)
     service.start_combat(game_id)
+    if gm_service is not None:
+        render_gm_result(
+            console, gm_service.on_combat_open(game_id), service.get_view(game_id)
+        )
 
     while True:
         view = service.get_view(game_id)
@@ -274,6 +335,7 @@ def main(
         ):
             report = service.run_active_enemy_turns(game_id)
             render_report(console, report, view)
+            _gm_react(console, gm_service, report)
             continue
 
         if (
@@ -292,6 +354,7 @@ def main(
                 console.print(f"[red]{error}[/red]")
                 continue
             _render_agent_turn(console, agent_report, view)
+            _gm_react(console, gm_service, agent_report.turn_report)
             continue
 
         try:
@@ -309,9 +372,17 @@ def main(
             if argument == "/status":
                 continue
             if argument == "/help":
-                console.print("Commands: attack <target>, /status, /help, /quit")
+                console.print("Commands: attack <target>, say <text>, /status, /help, /quit")
             else:
                 console.print(f"Unknown command: {argument}")
+            continue
+        if kind == "say":
+            if gm_service is None:
+                console.print("The GM is off — run with --gm fake or --gm llm to talk.")
+                continue
+            render_gm_result(
+                console, gm_service.on_player_say(GameId(view.game_id), argument), view
+            )
             continue
         if kind == "attack":
             target_id = _resolve_target(view, argument)
@@ -334,6 +405,7 @@ def main(
                 console.print(f"[red]{error}[/red]")
                 continue
             render_report(console, report, view)
+            _gm_react(console, gm_service, report)
             continue
         console.print("Unknown input — try: attack <target>")
 

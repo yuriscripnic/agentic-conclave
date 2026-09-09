@@ -136,3 +136,55 @@ def test_main_all_enemy_names_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert code == 0
     assert "No such character" not in buffer.getvalue()
+
+
+def test_parse_input_say_verb() -> None:
+    assert parse_input("say hello there") == ("say", "hello there")
+    assert parse_input("  SAY  hello  ") == ("say", "hello")
+    assert parse_input("say") == ("unknown", "say")
+
+
+def test_main_gm_fake_shows_opening_narration_and_npc_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    # --agent defaults to off: the human fights, so player prompts are
+    # deterministic every round. Line plan mirrors test_main_full_fight
+    # (a proven seed-42 victory), with one `say` in front.
+    lines = (
+        ["say what do you want from us?"]
+        + ["attack goblin scout"] * 30
+        + ["attack goblin skulker"] * 30
+        + ["attack orc brute"] * 60
+    )
+    code = main(argv=["--gm", "fake"], console=console, input_fn=_scripted(*lines))
+    assert code == 0
+    output = buffer.getvalue()
+    assert "The fight begins" in output
+    assert "Talk is for the weak" in output
+    assert "Orc Brute:" in output
+
+
+def test_main_gm_off_prints_no_gm_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    lines = (
+        ["say what do you want from us?"]
+        + ["attack goblin scout"] * 30
+        + ["attack goblin skulker"] * 30
+        + ["attack orc brute"] * 60
+    )
+    code = main(argv=["--gm", "off"], console=console, input_fn=_scripted(*lines))
+    assert code == 0
+    output = buffer.getvalue()
+    assert "The fight begins" not in output
+    assert "Talk is for the weak" not in output
+
+
+def test_main_gm_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    console, buffer = _console()
+    code = main(argv=["--gm", "llm"], console=console, input_fn=_scripted("/quit"))
+    assert code == 2
+    assert "OPENROUTER_API_KEY" in buffer.getvalue()
