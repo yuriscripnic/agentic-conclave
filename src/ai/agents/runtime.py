@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,6 +13,15 @@ from ai.models.errors import ModelError
 from ai.models.gateway import ModelGateway
 from ai.models.profiles import ModelProfile
 from ai.models.types import LLMInvocation, Message, StructuredModelResponse
+
+
+def _with_attempt(
+    invocation: LLMInvocation | None, attempt: int
+) -> LLMInvocation | None:
+    """Stamp the transport retry number on the record (attempt > 1 = retry)."""
+    if invocation is None or attempt == 1:
+        return invocation
+    return dataclasses.replace(invocation, attempt=attempt)
 
 
 class AgentRuntime:
@@ -40,18 +50,25 @@ class AgentRuntime:
         last_invocation: LLMInvocation | None = None
         for attempt in range(1, self._retry_policy.max_attempts + 1):
             try:
-                return asyncio.run(self._gateway.generate_structured(request, schema))
+                response = asyncio.run(self._gateway.generate_structured(request, schema))
             except ModelError as error:
                 last_error = error
-                last_invocation = error.invocation
+                last_invocation = _with_attempt(error.invocation, attempt)
                 if not is_retryable(error):
                     raise AgentRuntimeMisconfiguredError(
                         f"non-retryable model failure after {attempt} attempt(s): {error}",
                         attempts=attempt,
-                        last_invocation=error.invocation,
+                        last_invocation=last_invocation,
                     ) from error
                 if attempt < self._retry_policy.max_attempts:
                     self._retry_policy.sleep(self._retry_policy.backoff_seconds)
+            else:
+                if attempt > 1:
+                    response = dataclasses.replace(
+                        response,
+                        invocation=dataclasses.replace(response.invocation, attempt=attempt),
+                    )
+                return response
         raise AgentRuntimeError(
             f"model decision failed after {self._retry_policy.max_attempts} "
             f"attempt(s): {last_error}",

@@ -142,3 +142,32 @@ def test_request_is_built_from_the_profile() -> None:
         Message(role="user", content=_USER),
     )
     assert gateway.schemas[0] == _SCHEMA
+
+
+def test_retry_success_stamps_the_attempt_on_the_invocation() -> None:
+    fake = FakeModelGateway()
+    fake.enqueue_error(ModelTimeoutError("boom"))
+    fake.enqueue_structured(dict(_DECISION))
+    sleeps: list[float] = []
+    runtime = AgentRuntime(fake, _policy(sleeps))
+
+    response = runtime.decide_structured(
+        profile=_PROFILE, system=_SYSTEM, user=_USER, schema=_SCHEMA
+    )
+
+    assert response.invocation.attempt == 2
+    assert fake.invocations[0].attempt == 1  # the failed first attempt keeps 1
+
+
+def test_exhausted_budget_stamps_the_last_attempt() -> None:
+    fake = FakeModelGateway()
+    fake.enqueue_error(ModelTimeoutError("boom"))
+    fake.enqueue_error(ModelTimeoutError("boom"))
+    sleeps: list[float] = []
+    runtime = AgentRuntime(fake, _policy(sleeps, max_attempts=2))
+
+    with pytest.raises(AgentRuntimeError) as excinfo:
+        runtime.decide_structured(profile=_PROFILE, system=_SYSTEM, user=_USER, schema=_SCHEMA)
+
+    assert excinfo.value.last_invocation is not None
+    assert excinfo.value.last_invocation.attempt == 2
