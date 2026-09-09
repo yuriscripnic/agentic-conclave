@@ -55,6 +55,12 @@ def load_model_profiles(path: str | Path) -> ModelProfileCatalog:
     except tomllib.TOMLDecodeError as exc:
         raise ProfileConfigError(f"invalid TOML in {file}: {exc}") from exc
 
+    default_provider = raw.get("default_provider")
+    if not isinstance(default_provider, str) or not default_provider:
+        raise ProfileConfigError(
+            "model profile config missing required key: default_provider"
+        )
+
     profiles: dict[str, ModelProfile] = {}
     for name, entry in raw.get("profiles", {}).items():
         if not isinstance(entry, Mapping) or "provider" not in entry or "model" not in entry:
@@ -81,7 +87,7 @@ def load_model_profiles(path: str | Path) -> ModelProfileCatalog:
         )
 
     return ModelProfileCatalog(
-        default_provider=str(raw.get("default_provider", "openrouter")),
+        default_provider=default_provider,
         profiles=profiles,
         pricing=pricing,
     )

@@ -7,10 +7,13 @@ from ai.memory.types import EmbeddingRequest
 from ai.models.types import Message, ModelRequest
 from infrastructure.llm import create_embedding_gateway, create_gateway
 
-pytestmark = pytest.mark.skipif(
-    not os.environ.get("OPENROUTER_API_KEY"),
-    reason="OPENROUTER_API_KEY not set; live provider test skipped (CLAUDE.md §46)",
-)
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        not os.environ.get("OPENROUTER_API_KEY"),
+        reason="OPENROUTER_API_KEY not set; live provider test skipped (CLAUDE.md §46)",
+    ),
+]
 
 
 def test_openrouter_live_generate() -> None:

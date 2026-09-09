@@ -61,7 +61,9 @@ def test_missing_file_raises(tmp_path: Path) -> None:
 
 
 def test_profile_missing_model_raises(tmp_path: Path) -> None:
-    config = _write(tmp_path, '[profiles.gm]\nprovider = "openrouter"\n')
+    config = _write(
+        tmp_path, 'default_provider = "openrouter"\n[profiles.gm]\nprovider = "openrouter"\n'
+    )
     with pytest.raises(InvalidProfileError, match="gm"):
         load_model_profiles(config)
 
@@ -107,3 +109,9 @@ def test_shipped_config_embedding_profile_is_the_sanctioned_carve_out() -> None:
     assert catalog.pricing["openai/text-embedding-3-small"] == ModelPricing(
         input_per_million_usd=0.02, output_per_million_usd=0.0
     )
+
+
+def test_missing_default_provider_raises(tmp_path: Path) -> None:
+    config = _write(tmp_path, '[profiles.gm]\nprovider = "openrouter"\nmodel = "m"\n')
+    with pytest.raises(ProfileConfigError, match="default_provider"):
+        load_model_profiles(config)
