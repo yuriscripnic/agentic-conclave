@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -100,3 +100,39 @@ def test_error_hierarchy() -> None:
         UnknownProviderError,
     ):
         assert issubclass(cls, ModelError)
+
+
+def test_llm_invocation_telemetry_fields_have_defaults() -> None:
+    invocation = _invocation()
+
+    assert invocation.timestamp is None
+    assert invocation.game_id is None
+    assert invocation.agent_id is None
+    assert invocation.correlation_id is None
+    assert invocation.attempt == 1
+    assert invocation.retrieval_count == 0
+    assert invocation.tools_called == 0
+
+
+def test_llm_invocation_is_enrichable_with_replace() -> None:
+    original = _invocation()
+
+    enriched = replace(
+        original,
+        timestamp="2026-09-09T12:00:00+00:00",
+        game_id="game-1",
+        agent_id="brix",
+        correlation_id="corr-1",
+        attempt=2,
+        retrieval_count=3,
+    )
+
+    assert enriched.game_id == "game-1"
+    assert enriched.agent_id == "brix"
+    assert enriched.correlation_id == "corr-1"
+    assert enriched.attempt == 2
+    assert enriched.retrieval_count == 3
+    assert enriched.provider == "fake"  # transport facts survive enrichment
+    # the original frozen record is untouched
+    assert original.game_id is None
+    assert original.attempt == 1

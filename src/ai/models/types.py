@@ -45,6 +45,14 @@ class LLMInvocation:
     output_tokens: int | None
     estimated_cost_usd: float | None
     request_id: str
+    # Turn-context telemetry, stamped by the application layer (spec §3.1).
+    timestamp: str | None = None
+    game_id: str | None = None
+    agent_id: str | None = None
+    correlation_id: str | None = None
+    attempt: int = 1
+    retrieval_count: int = 0
+    tools_called: int = 0
 
 
 @dataclass(frozen=True)
