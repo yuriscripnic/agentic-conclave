@@ -18,6 +18,7 @@ from ai.models.types import LLMInvocation
 from application.game_service import GameService
 from application.gm.conversation import GmConversation, GmMessage
 from application.gm.profiles import GmProfile
+from application.telemetry import TelemetrySink, stamp_invocation
 from application.views import GameView, TurnReport
 from domain.common.ids import GameId
 from domain.events.collector import EventEnvelope
@@ -203,14 +204,18 @@ class GmDirector:
         model_catalog: ModelProfileCatalog,
         profile: GmProfile,
         conversation: GmConversation,
+        telemetry: TelemetrySink | None = None,
     ) -> None:
         self._game_service = game_service
         self._runtime = runtime
         self._model_profile = model_catalog.get("gm")
         self._profile = profile
         self._conversation = conversation
+        self._telemetry = telemetry
 
-    def on_combat_open(self, game_id: GameId) -> GmResult:
+    def on_combat_open(
+        self, game_id: GameId, *, correlation_id: str | None = None
+    ) -> GmResult:
         view = self._game_service.get_view(game_id)
         system, user = build_gm_context(
             self._profile,
@@ -219,9 +224,13 @@ class GmDirector:
             self._conversation.recent(self._profile.history_limit),
             "narrate_open",
         )
-        return self._decide(system, user, view)
+        return self._decide(
+            system, user, view, game_id=game_id, correlation_id=correlation_id
+        )
 
-    def on_turn_report(self, game_id: GameId, report: TurnReport) -> GmResult | None:
+    def on_turn_report(
+        self, game_id: GameId, report: TurnReport, *, correlation_id: str | None = None
+    ) -> GmResult | None:
         """React to notable events only; None (zero LLM calls) otherwise (spec D3/D4).
 
         `game_id` is accepted for interface symmetry with the other hooks and
@@ -241,9 +250,13 @@ class GmDirector:
             self._conversation.recent(self._profile.history_limit),
             "react_to_events",
         )
-        return self._decide(system, user, report.view)
+        return self._decide(
+            system, user, report.view, game_id=game_id, correlation_id=correlation_id
+        )
 
-    def on_player_say(self, game_id: GameId, text: str) -> GmResult:
+    def on_player_say(
+        self, game_id: GameId, text: str, *, correlation_id: str | None = None
+    ) -> GmResult:
         view = self._game_service.get_view(game_id)
         self._conversation.append(
             GmMessage(speaker="player", text=" ".join(text.split()))
@@ -255,7 +268,9 @@ class GmDirector:
             self._conversation.recent(self._profile.history_limit),
             "respond_to_player",
         )
-        result = self._decide(system, user, view)
+        result = self._decide(
+            system, user, view, game_id=game_id, correlation_id=correlation_id
+        )
         if result.npc_reply is not None:
             self._conversation.append(
                 GmMessage(speaker=result.addressed_to or "gm", text=result.npc_reply)
@@ -266,7 +281,15 @@ class GmDirector:
             )
         return result
 
-    def _decide(self, system: str, user: str, view: GameView) -> GmResult:
+    def _decide(
+        self,
+        system: str,
+        user: str,
+        view: GameView,
+        *,
+        game_id: GameId,
+        correlation_id: str | None,
+    ) -> GmResult:
         """One structured GM decision; every failure becomes an empty GmResult."""
         try:
             response = self._runtime.decide_structured(
@@ -279,16 +302,43 @@ class GmDirector:
             invocation = (
                 (error.last_invocation,) if error.last_invocation is not None else ()
             )
-            return GmResult(invocations=invocation)
+            return GmResult(
+                invocations=self._flush(game_id, correlation_id, invocation)
+            )
         try:
             narration, reply, addressed = map_gm_response(
                 response.data, self._profile, view
             )
         except InvalidGmResponseError:
-            return GmResult(invocations=(response.invocation,))
+            return GmResult(
+                invocations=self._flush(
+                    game_id, correlation_id, (response.invocation,)
+                )
+            )
         return GmResult(
             narration=narration,
             npc_reply=reply,
             addressed_to=addressed,
-            invocations=(response.invocation,),
+            invocations=self._flush(game_id, correlation_id, (response.invocation,)),
         )
+
+    def _flush(
+        self,
+        game_id: GameId,
+        correlation_id: str | None,
+        invocations: tuple[LLMInvocation, ...],
+    ) -> tuple[LLMInvocation, ...]:
+        """Stamp GM invocations (agent_id "gm") and hand them to the sink."""
+        enriched = tuple(
+            stamp_invocation(
+                invocation,
+                game_id=str(game_id),
+                agent_id="gm",
+                correlation_id=correlation_id,
+            )
+            for invocation in invocations
+        )
+        if self._telemetry is not None:
+            for invocation in enriched:
+                self._telemetry.record(invocation)
+        return enriched

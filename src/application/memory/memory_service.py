@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import uuid
 
 from ai.memory.ports import EmbeddingGateway, MemoryRepository
 from ai.memory.types import EmbeddingRequest, MemoryKind, MemoryRecord
+from ai.models.types import LLMInvocation
 from application.agents.perception import AgentPerception
+from application.telemetry import TelemetrySink, stamp_invocation
 from application.views import TurnReport
 
 _RETRIEVAL_LIMIT = 5
@@ -23,14 +26,20 @@ class MemoryService:
         *,
         model: str,
         retrieval_limit: int = _RETRIEVAL_LIMIT,
+        telemetry: TelemetrySink | None = None,
     ) -> None:
         self._gateway = gateway
         self._repository = repository
         self._model = model
         self._retrieval_limit = retrieval_limit
+        self._telemetry = telemetry
 
     def retrieve(
-        self, game_id: str, perception: AgentPerception
+        self,
+        game_id: str,
+        perception: AgentPerception,
+        *,
+        correlation_id: str | None = None,
     ) -> tuple[MemoryRecord, ...]:
         """Embed the situation line and return the agent's most relevant memories."""
         me = perception.self_view
@@ -44,9 +53,17 @@ class MemoryService:
         response = asyncio.run(
             self._gateway.embed(EmbeddingRequest(texts=(query,), model=self._model))
         )
-        return self._repository.search(
+        memories = self._repository.search(
             game_id, me.id, response.vectors[0], limit=self._retrieval_limit
         )
+        self._flush(
+            response.invocation,
+            game_id=game_id,
+            agent_id=me.id,
+            correlation_id=correlation_id,
+            retrieval_count=len(memories),
+        )
+        return memories
 
     def record_turn(
         self,
@@ -55,6 +72,7 @@ class MemoryService:
         turn_report: TurnReport,
         *,
         note: str | None = None,
+        correlation_id: str | None = None,
     ) -> None:
         """Record this turn's episodic (events) and semantic (note) memories."""
         if not turn_report.accepted:
@@ -74,6 +92,13 @@ class MemoryService:
                 )
             )
         )
+        self._flush(
+            response.invocation,
+            game_id=game_id,
+            agent_id=perception.self_view.id,
+            correlation_id=correlation_id,
+            retrieval_count=0,
+        )
         for (kind, text), vector in zip(entries, response.vectors, strict=True):
             self._repository.append(
                 MemoryRecord(
@@ -86,6 +111,28 @@ class MemoryService:
                     embedding=vector,
                 )
             )
+
+    def _flush(
+        self,
+        invocation: LLMInvocation,
+        *,
+        game_id: str,
+        agent_id: str,
+        correlation_id: str | None,
+        retrieval_count: int,
+    ) -> None:
+        """Stamp the embed invocation with its context and hand it to the sink."""
+        if self._telemetry is None:
+            return
+        stamped = stamp_invocation(
+            invocation,
+            game_id=game_id,
+            agent_id=agent_id,
+            correlation_id=correlation_id,
+        )
+        self._telemetry.record(
+            dataclasses.replace(stamped, retrieval_count=retrieval_count)
+        )
 
 
 def _episodic_text(perception: AgentPerception, turn_report: TurnReport) -> str | None:

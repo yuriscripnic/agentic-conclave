@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -14,7 +15,7 @@ from ai.memory.types import EmbeddingRequest, EmbeddingResponse, MemoryKind, Mem
 from ai.models.errors import ModelRequestError, ModelTimeoutError
 from ai.models.fake import FakeModelGateway
 from ai.models.profiles import ModelProfile, ModelProfileCatalog
-from ai.models.types import ModelRequest, StructuredModelResponse
+from ai.models.types import LLMInvocation, ModelRequest, StructuredModelResponse
 from application.agents.agent_turn_service import AgentNotRegisteredError, AgentTurnService
 from application.agents.fake_script import ScriptedAgentGateway
 from application.agents.party_board import PartyMessageBoard
@@ -28,6 +29,7 @@ from application.commands import (
 )
 from application.game_service import GameService
 from application.memory.memory_service import MemoryService
+from application.telemetry import TelemetrySink
 from domain.common.ids import CharacterId, GameId
 from infrastructure.events.in_memory import InMemoryEventRepository
 from infrastructure.memory.in_memory import InMemoryMemoryRepository
@@ -86,6 +88,16 @@ class _CapturingFake(FakeModelGateway):
     ) -> StructuredModelResponse:
         self.requests.append(request)
         return await super().generate_structured(request, schema)
+
+
+class _RecordingTelemetrySink:
+    """Telemetry double that keeps every enriched record for assertions."""
+
+    def __init__(self) -> None:
+        self.records: list[LLMInvocation] = []
+
+    def record(self, invocation: LLMInvocation) -> None:
+        self.records.append(invocation)
 
 
 def _game_service() -> GameService:
@@ -237,6 +249,7 @@ def _agent_service(
     max_action_retries: int = 2,
     board: PartyMessageBoard | None = None,
     memory: MemoryService | None = None,
+    telemetry: TelemetrySink | None = None,
 ) -> AgentTurnService:
     runtime = AgentRuntime(gateway, RetryPolicy(max_attempts=3))
     agent_profiles = AgentProfileCatalog(
@@ -244,7 +257,13 @@ def _agent_service(
         agents={"brix": _BRIX},
     )
     return AgentTurnService(
-        game_service, runtime, _MODEL_CATALOG, agent_profiles, board=board, memory=memory
+        game_service,
+        runtime,
+        _MODEL_CATALOG,
+        agent_profiles,
+        board=board,
+        memory=memory,
+        telemetry=telemetry,
     )
 
 
@@ -521,10 +540,14 @@ class _FailingEmbeddingGateway:
 
 def _memory_service(
     gateway: EmbeddingGateway | None = None,
+    telemetry: TelemetrySink | None = None,
 ) -> tuple[MemoryService, InMemoryMemoryRepository]:
     repo = InMemoryMemoryRepository()
     embedder = gateway if gateway is not None else DeterministicEmbeddingGateway()
-    return MemoryService(embedder, repo, model="test-model"), repo
+    return (
+        MemoryService(embedder, repo, model="test-model", telemetry=telemetry),
+        repo,
+    )
 
 
 def _retrieval_perception(
@@ -701,3 +724,66 @@ def test_embedding_failure_never_fails_the_turn() -> None:
     assert report.accepted is True
     assert report.memory_retrieved == 0
     assert len(report.invocations) == 1  # only the decision call; retrieval degraded
+
+
+def test_turn_invocations_carry_the_enrichment_stamp() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    fake.enqueue_structured(
+        {"action_type": "attack", "target_id": goblin_id.value, "public_message": "I strike."}
+    )
+    service = _agent_service(game_service, fake)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert len(report.invocations) == 1
+    invocation = report.invocations[0]
+    assert invocation.game_id == str(game_id)
+    assert invocation.agent_id == brix_id.value
+    assert invocation.correlation_id is not None
+    assert invocation.timestamp is not None
+    datetime.fromisoformat(invocation.timestamp)
+    assert invocation.attempt == 1
+
+
+def test_transport_retry_invocations_carry_attempt_numbers() -> None:
+    game_service = _game_service()
+    game_id, brix_id, _goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    for _ in range(6):  # 2 decision attempts x 3 transport attempts
+        fake.enqueue_error(ModelTimeoutError("boom"))
+    service = _agent_service(game_service, fake, max_action_retries=1)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.proposal_source == "fallback"
+    assert len(report.invocations) == 2
+    assert all(invocation.attempt == 3 for invocation in report.invocations)
+
+
+def test_one_correlation_id_spans_the_decision_and_memory_calls() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _party_with_brix_first(game_service)
+    fake = FakeModelGateway()
+    fake.enqueue_structured(
+        {"action_type": "attack", "target_id": goblin_id.value, "public_message": "I strike."}
+    )
+    telemetry = _RecordingTelemetrySink()
+    memory, _repo = _memory_service(telemetry=telemetry)
+    service = _agent_service(game_service, fake, memory=memory, telemetry=telemetry)
+    service.register(brix_id, _BRIX)
+
+    service.take_turn(game_id, brix_id, correlation_id="corr-42")
+
+    embeds = [record for record in telemetry.records if record.operation == "embed"]
+    decisions = [
+        record for record in telemetry.records if record.operation == "generate_structured"
+    ]
+    assert len(decisions) == 1
+    assert len(embeds) == 2  # retrieval embed + episodic/semantic record embed
+    assert all(record.correlation_id == "corr-42" for record in telemetry.records)
+    assert all(record.agent_id == brix_id.value for record in embeds)
+    assert all(record.game_id == str(game_id) for record in telemetry.records)

@@ -27,6 +27,7 @@ from application.agents.profiles import AgentProfile, AgentProfileCatalog
 from application.commands import SubmitActionCommand
 from application.game_service import GameService
 from application.memory.memory_service import MemoryService
+from application.telemetry import TelemetrySink, new_correlation_id, stamp_invocation
 from application.views import TurnReport
 from domain.common.errors import PersistenceError
 from domain.common.ids import CharacterId, GameId
@@ -67,6 +68,7 @@ class AgentTurnService:
         max_action_retries: int | None = None,
         board: PartyMessageBoard | None = None,
         memory: MemoryService | None = None,
+        telemetry: TelemetrySink | None = None,
     ) -> None:
         self._game_service = game_service
         self._runtime = runtime
@@ -78,6 +80,7 @@ class AgentTurnService:
         )
         self._board = board if board is not None else PartyMessageBoard()
         self._memory = memory
+        self._telemetry = telemetry
         self._agents: dict[str, AgentProfile] = {}
 
     def register(self, actor_id: CharacterId, profile: AgentProfile) -> None:
@@ -86,10 +89,17 @@ class AgentTurnService:
     def is_agent_controlled(self, actor_id: CharacterId) -> bool:
         return actor_id.value in self._agents
 
-    def take_turn(self, game_id: GameId, actor_id: CharacterId) -> AgentTurnReport:
+    def take_turn(
+        self,
+        game_id: GameId,
+        actor_id: CharacterId,
+        *,
+        correlation_id: str | None = None,
+    ) -> AgentTurnReport:
         profile = self._agents.get(actor_id.value)
         if profile is None:
             raise AgentNotRegisteredError(actor_id.value)
+        correlation_id = correlation_id or new_correlation_id()
 
         agent = CharacterAgent(profile)
         model_profile = self._catalog.get(profile.model_profile)
@@ -101,7 +111,7 @@ class AgentTurnService:
         # every attempt; hoisting it also makes memory retrieval once-per-turn.
         view = self._game_service.get_view(game_id)
         perception = build_perception(view, actor_id.value)
-        memories = self._retrieve_memories(game_id, perception, invocations)
+        memories = self._retrieve_memories(game_id, perception, invocations, correlation_id)
 
         for attempt in range(1, self._max_action_retries + 2):
             try:
@@ -142,7 +152,12 @@ class AgentTurnService:
                         )
                     )
                 self._record_memories(
-                    game_id, perception, turn_report, decision.memory_note, invocations
+                    game_id,
+                    perception,
+                    turn_report,
+                    decision.memory_note,
+                    invocations,
+                    correlation_id,
                 )
                 return AgentTurnReport(
                     actor_id=actor_id.value,
@@ -153,7 +168,7 @@ class AgentTurnService:
                     rejection_reasons=tuple(rejection_reasons),
                     fallback_reason=None,
                     public_message=decision.public_message,
-                    invocations=tuple(invocations),
+                    invocations=self._flush(game_id, actor_id.value, correlation_id, invocations),
                     turn_report=turn_report,
                     party_message=decision.party_message,
                     memory_retrieved=len(memories),
@@ -168,6 +183,7 @@ class AgentTurnService:
             memories,
             invocations,
             tuple(rejection_reasons),
+            correlation_id,
         )
 
     def _submit(
@@ -190,6 +206,7 @@ class AgentTurnService:
         memories: tuple[MemoryRecord, ...],
         invocations: list[LLMInvocation],
         rejection_reasons: tuple[str, ...],
+        correlation_id: str,
     ) -> AgentTurnReport:
         view = self._game_service.get_view(game_id)
         target_id = first_living_opponent(view, actor_id.value)
@@ -206,7 +223,9 @@ class AgentTurnService:
                 target_id=CharacterId(target_id),
             )
         )
-        self._record_memories(game_id, perception, turn_report, None, invocations)
+        self._record_memories(
+            game_id, perception, turn_report, None, invocations, correlation_id
+        )
         return AgentTurnReport(
             actor_id=actor_id.value,
             actor_name=perception.self_view.name,
@@ -216,7 +235,7 @@ class AgentTurnService:
             rejection_reasons=rejection_reasons,
             fallback_reason=f"decision budget exhausted ({detail})",
             public_message=None,
-            invocations=tuple(invocations),
+            invocations=self._flush(game_id, actor_id.value, correlation_id, invocations),
             turn_report=turn_report,
             party_message=None,
             memory_retrieved=len(memories),
@@ -227,12 +246,15 @@ class AgentTurnService:
         game_id: GameId,
         perception: AgentPerception,
         invocations: list[LLMInvocation],
+        correlation_id: str,
     ) -> tuple[MemoryRecord, ...]:
         """Memory never gates a turn (spec §2.8): failures degrade to no memories."""
         if self._memory is None:
             return ()
         try:
-            return self._memory.retrieve(str(game_id), perception)
+            return self._memory.retrieve(
+                str(game_id), perception, correlation_id=correlation_id
+            )
         except ModelError as error:
             if error.invocation is not None:
                 invocations.append(error.invocation)
@@ -247,14 +269,39 @@ class AgentTurnService:
         turn_report: TurnReport,
         note: str | None,
         invocations: list[LLMInvocation],
+        correlation_id: str,
     ) -> None:
         """Recording never revisits an accepted action (spec §2.8): failures drop the write."""
         if self._memory is None:
             return
         try:
-            self._memory.record_turn(str(game_id), perception, turn_report, note=note)
+            self._memory.record_turn(
+                str(game_id), perception, turn_report, note=note, correlation_id=correlation_id
+            )
         except ModelError as error:
             if error.invocation is not None:
                 invocations.append(error.invocation)
         except PersistenceError:
             return
+
+    def _flush(
+        self,
+        game_id: GameId,
+        agent_id: str,
+        correlation_id: str,
+        invocations: list[LLMInvocation],
+    ) -> tuple[LLMInvocation, ...]:
+        """Stamp every invocation with the turn context and hand it to the sink."""
+        enriched = tuple(
+            stamp_invocation(
+                invocation,
+                game_id=str(game_id),
+                agent_id=agent_id,
+                correlation_id=correlation_id,
+            )
+            for invocation in invocations
+        )
+        if self._telemetry is not None:
+            for invocation in enriched:
+                self._telemetry.record(invocation)
+        return enriched

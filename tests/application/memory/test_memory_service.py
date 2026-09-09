@@ -6,6 +6,7 @@ import uuid
 
 from ai.memory.fake import DeterministicEmbeddingGateway
 from ai.memory.types import EmbeddingRequest, EmbeddingResponse, MemoryKind, MemoryRecord
+from ai.models.types import LLMInvocation
 from application.agents.perception import AgentPerception, OpponentBrief, build_perception
 from application.commands import (
     AddCharacterCommand,
@@ -387,3 +388,76 @@ def test_episodic_derivation_covers_hit_miss_critical_defeat_and_no_attack() -> 
     assert _episodic_text(perception, report_with(hit, damage, enemy_hit)) == (
         "Round 1: attacked Goblin and dealt 5 damage."
     )
+
+
+class _RecordingTelemetrySink:
+    """Telemetry double that keeps every enriched record for assertions."""
+
+    def __init__(self) -> None:
+        self.records: list[LLMInvocation] = []
+
+    def record(self, invocation: LLMInvocation) -> None:
+        self.records.append(invocation)
+
+
+def test_retrieve_stamps_the_embed_invocation_with_the_retrieval_count() -> None:
+    repo = InMemoryMemoryRepository()
+    repo.append(
+        _seed_record(
+            "game-1", "brix", "The Goblin hits hard — stay at range.", MemoryKind.SEMANTIC, 1
+        )
+    )
+    telemetry = _RecordingTelemetrySink()
+    service = MemoryService(
+        DeterministicEmbeddingGateway(), repo, model="test-model", telemetry=telemetry
+    )
+
+    memories = service.retrieve("game-1", _perception(), correlation_id="corr-9")
+
+    assert len(memories) == 1
+    assert len(telemetry.records) == 1
+    invocation = telemetry.records[0]
+    assert invocation.operation == "embed"
+    assert invocation.agent_id == "brix"
+    assert invocation.game_id == "game-1"
+    assert invocation.correlation_id == "corr-9"
+    assert invocation.retrieval_count == 1
+    assert invocation.timestamp is not None
+
+
+def test_record_turn_stamps_its_embed_invocation() -> None:
+    game_service = _game_service()
+    game_id, brix_id, goblin_id = _brix_first(game_service)
+    telemetry = _RecordingTelemetrySink()
+    service = MemoryService(
+        DeterministicEmbeddingGateway(),
+        InMemoryMemoryRepository(),
+        model="test-model",
+        telemetry=telemetry,
+    )
+    perception = build_perception(game_service.get_view(game_id), brix_id.value)
+    turn_report = game_service.submit_action(
+        SubmitActionCommand(
+            game_id=game_id,
+            actor_id=brix_id,
+            action_type="attack",
+            target_id=goblin_id,
+        )
+    )
+
+    service.record_turn(
+        str(game_id),
+        perception,
+        turn_report,
+        note="Watch the Goblin.",
+        correlation_id="corr-10",
+    )
+
+    assert len(telemetry.records) == 1
+    invocation = telemetry.records[0]
+    assert invocation.operation == "embed"
+    assert invocation.agent_id == brix_id.value
+    assert invocation.game_id == str(game_id)
+    assert invocation.correlation_id == "corr-10"
+    assert invocation.retrieval_count == 0
+    assert invocation.timestamp is not None

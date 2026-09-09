@@ -8,12 +8,13 @@ from ai.agents.runtime import AgentRuntime
 from ai.models.errors import ModelRequestError
 from ai.models.fake import FakeModelGateway
 from ai.models.profiles import ModelProfile, ModelProfileCatalog
-from ai.models.types import ModelRequest, StructuredModelResponse
+from ai.models.types import LLMInvocation, ModelRequest, StructuredModelResponse
 from application.commands import AddCharacterCommand, CreateGameCommand, WeaponSpec
 from application.game_service import GameService
 from application.gm.conversation import GmConversation
 from application.gm.director import GmDirector
 from application.gm.profiles import GmProfile
+from application.telemetry import TelemetrySink
 from application.views import TurnReport
 from domain.common.ids import EventId, GameId
 from domain.events.collector import EventEnvelope
@@ -111,12 +112,24 @@ def _orc() -> AddCharacterCommand:
     )
 
 
+class _RecordingTelemetrySink:
+    def __init__(self) -> None:
+        self.records: list[LLMInvocation] = []
+
+    def record(self, invocation: LLMInvocation) -> None:
+        self.records.append(invocation)
+
+
 def _director(
-    game_service: GameService, fake: FakeModelGateway
+    game_service: GameService,
+    fake: FakeModelGateway,
+    telemetry: TelemetrySink | None = None,
 ) -> tuple[GmDirector, GmConversation]:
     conversation = GmConversation()
     runtime = AgentRuntime(fake, RetryPolicy(max_attempts=3))
-    director = GmDirector(game_service, runtime, _MODEL_CATALOG, _PROFILE, conversation)
+    director = GmDirector(
+        game_service, runtime, _MODEL_CATALOG, _PROFILE, conversation, telemetry=telemetry
+    )
     return director, conversation
 
 
@@ -294,3 +307,38 @@ def test_mapping_failure_returns_an_empty_result() -> None:
     assert result.addressed_to is None
     assert len(result.invocations) == 1
     assert result.invocations[0].status == "ok"
+
+
+def test_gm_invocations_are_stamped_with_the_gm_agent_id() -> None:
+    service, game_id = _scene()
+    fake = _CapturingFake()
+    fake.enqueue_structured({"narration": "Two foes block the pass."})
+    telemetry = _RecordingTelemetrySink()
+    director, _conversation = _director(service, fake, telemetry)
+
+    result = director.on_combat_open(game_id, correlation_id="corr-7")
+
+    assert result.narration is not None
+    assert len(telemetry.records) == 1
+    invocation = telemetry.records[0]
+    assert invocation.agent_id == "gm"
+    assert invocation.game_id == str(game_id)
+    assert invocation.correlation_id == "corr-7"
+    assert invocation.timestamp is not None
+    assert result.invocations[0].agent_id == "gm"
+
+
+def test_failed_gm_calls_are_stamped_too() -> None:
+    service, game_id = _scene()
+    fake = FakeModelGateway()
+    fake.enqueue_error(ModelRequestError("gateway down"))
+    telemetry = _RecordingTelemetrySink()
+    director, _conversation = _director(service, fake, telemetry)
+
+    result = director.on_combat_open(game_id)
+
+    assert result.narration is None
+    assert len(telemetry.records) == 1
+    assert telemetry.records[0].agent_id == "gm"
+    assert telemetry.records[0].status == "error"
+    assert result.invocations[0].agent_id == "gm"
