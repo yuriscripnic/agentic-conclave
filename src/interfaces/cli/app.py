@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from rich.console import Console
+from rich.table import Table
 
 from ai.agents.retry import RetryPolicy
 from ai.agents.runtime import AgentRuntime
@@ -32,6 +33,7 @@ from application.gm.conversation import GmConversation
 from application.gm.director import GmDirector
 from application.gm.profiles import load_gm_profile
 from application.memory.memory_service import MemoryService
+from application.telemetry import CompositeTelemetrySink, TelemetrySink, new_correlation_id
 from application.views import GameView, TurnReport
 from domain.common.errors import DomainError, PersistenceError
 from domain.common.ids import CharacterId, GameId
@@ -46,6 +48,12 @@ from infrastructure.persistence.postgres.repository import (
     PostgresEventRepository,
     PostgresGameRepository,
 )
+from infrastructure.telemetry.in_memory import InMemoryTelemetrySink
+from infrastructure.telemetry.logging_sink import (
+    LoggingTelemetrySink,
+    configure_telemetry_logging,
+)
+from infrastructure.telemetry.postgres import PostgresTelemetrySink
 from interfaces.cli.renderer import render_game_view, render_gm_result, render_report
 
 _CONFIG_DIR = Path(__file__).resolve().parents[3] / "config"
@@ -114,7 +122,7 @@ def _gm_decision(prompt: str) -> dict[str, str]:
     return {"narration": "Two goblins and an orc brute block the pass. The fight begins."}
 
 
-def _wire_gm(service: GameService, mode: str) -> GmDirector:
+def _wire_gm(service: GameService, mode: str, telemetry: TelemetrySink) -> GmDirector:
     """Wire the GM director off the shipped gm.toml persona (spec D9)."""
     profile = load_gm_profile(_CONFIG_DIR / "gm.toml")
     model_catalog = load_model_profiles(_CONFIG_DIR / "llm.toml")
@@ -126,16 +134,24 @@ def _wire_gm(service: GameService, mode: str) -> GmDirector:
     else:
         gateway = ScriptedGmGateway(FakeModelGateway(), _gm_decision)
     runtime = AgentRuntime(gateway, RetryPolicy())
-    return GmDirector(service, runtime, model_catalog, profile, GmConversation())
+    return GmDirector(
+        service, runtime, model_catalog, profile, GmConversation(), telemetry=telemetry
+    )
 
 
 def _gm_react(
-    console: Console, gm_service: GmDirector | None, report: TurnReport
+    console: Console,
+    gm_service: GmDirector | None,
+    report: TurnReport,
+    *,
+    correlation_id: str | None = None,
 ) -> None:
     """React to a finished turn report; prints nothing when nothing is notable."""
     if gm_service is None:
         return
-    result = gm_service.on_turn_report(GameId(report.game_id), report)
+    result = gm_service.on_turn_report(
+        GameId(report.game_id), report, correlation_id=correlation_id
+    )
     if result is not None:
         render_gm_result(console, result, report.view)
 
@@ -181,6 +197,7 @@ def _wire_party(
     mode: str,
     console: Console,
     db: str,
+    telemetry: TelemetrySink,
 ) -> AgentTurnService:
     """Wire the agent stack and add the AI party members before combat starts."""
     agent_profiles = load_agent_profiles(_CONFIG_DIR / "agents.toml")
@@ -213,10 +230,12 @@ def _wire_party(
         embedder = create_embedding_gateway(embedding_profile.provider, api_key=api_key)
     else:
         embedder = DeterministicEmbeddingGateway()
-    memory = MemoryService(embedder, _memory_repository(db), model=embedding_profile.model)
+    memory = MemoryService(
+        embedder, _memory_repository(db), model=embedding_profile.model, telemetry=telemetry
+    )
     runtime = AgentRuntime(gateway, RetryPolicy())
     agent_service = AgentTurnService(
-        service, runtime, model_catalog, agent_profiles, memory=memory
+        service, runtime, model_catalog, agent_profiles, memory=memory, telemetry=telemetry
     )
     names: list[str] = []
     for profile in agent_profiles.agents.values():
@@ -264,6 +283,30 @@ def _render_agent_turn(console: Console, report: AgentTurnReport, view: GameView
     render_report(console, report.turn_report, view)
 
 
+def _render_telemetry(console: Console, sink: InMemoryTelemetrySink) -> None:
+    """Per-agent/role session totals table (spec §3.6)."""
+    totals = sink.snapshot()
+    if not totals:
+        console.print("[dim]No LLM calls recorded this session.[/dim]")
+        return
+    table = Table(title="LLM telemetry (this session)")
+    for column in (
+        "agent", "role", "calls", "retries", "tokens in", "tokens out", "est. cost"
+    ):
+        table.add_column(column)
+    for total in totals:
+        table.add_row(
+            total.key,
+            total.role,
+            str(total.calls),
+            str(total.retries),
+            str(total.input_tokens),
+            str(total.output_tokens),
+            f"${total.estimated_cost_usd:.6f}",
+        )
+    console.print(table)
+
+
 def main(
     argv: list[str] | None = None,
     console: Console | None = None,
@@ -285,6 +328,11 @@ def main(
         default="fake",
         help="enable the AI Game Master narrator (off | llm | fake)",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="emit per-call LLM telemetry lines (JSON) to stderr or $CONCLAVE_TELEMETRY_LOG",
+    )
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
@@ -297,19 +345,32 @@ def main(
             console.print(f"[red]{error}[/red]")
             return 2
 
+    configure_telemetry_logging(debug=args.debug)
+    session_sink = InMemoryTelemetrySink()
+    sinks: list[TelemetrySink] = [LoggingTelemetrySink(), session_sink]
+    if args.db == "postgres":
+        # build_service hard-fails on a missing DATABASE_URL unless `service`
+        # was injected directly (tests); degrade to logging-only in that case.
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            sinks.append(PostgresTelemetrySink(connect(database_url)))
+    telemetry: TelemetrySink = CompositeTelemetrySink(sinks)
+
     game_id = service.create_game(CreateGameCommand(seed=args.seed))
     service.add_character(game_id, _fighter("Arin"))
     agent_service: AgentTurnService | None = None
     if args.agent != "off":
         try:
-            agent_service = _wire_party(service, game_id, args.agent, console, args.db)
+            agent_service = _wire_party(
+                service, game_id, args.agent, console, args.db, telemetry
+            )
         except (ValueError, ModelError) as error:
             console.print(f"[red]{error}[/red]")
             return 2
     gm_service: GmDirector | None = None
     if args.gm != "off":
         try:
-            gm_service = _wire_gm(service, args.gm)
+            gm_service = _wire_gm(service, args.gm, telemetry)
         except (ValueError, ModelError) as error:
             console.print(f"[red]{error}[/red]")
             return 2
@@ -318,13 +379,16 @@ def main(
     service.start_combat(game_id)
     if gm_service is not None:
         render_gm_result(
-            console, gm_service.on_combat_open(game_id), service.get_view(game_id)
+            console,
+            gm_service.on_combat_open(game_id, correlation_id=new_correlation_id()),
+            service.get_view(game_id),
         )
 
     while True:
         view = service.get_view(game_id)
         render_game_view(console, view)
         if view.status == "ended":
+            _render_telemetry(console, session_sink)
             console.print("The adventure has ended. Thanks for playing!")
             return 0
         if (
@@ -335,7 +399,7 @@ def main(
         ):
             report = service.run_active_enemy_turns(game_id)
             render_report(console, report, view)
-            _gm_react(console, gm_service, report)
+            _gm_react(console, gm_service, report, correlation_id=new_correlation_id())
             continue
 
         if (
@@ -346,15 +410,22 @@ def main(
             and agent_service.is_agent_controlled(CharacterId(view.combat.active_actor_id))
         ):
             try:
+                correlation_id = new_correlation_id()
                 agent_report = agent_service.take_turn(
                     GameId(view.game_id),
                     CharacterId(view.combat.active_actor_id),
+                    correlation_id=correlation_id,
                 )
             except DomainError as error:
                 console.print(f"[red]{error}[/red]")
                 continue
             _render_agent_turn(console, agent_report, view)
-            _gm_react(console, gm_service, agent_report.turn_report)
+            _gm_react(
+                console,
+                gm_service,
+                agent_report.turn_report,
+                correlation_id=correlation_id,
+            )
             continue
 
         try:
@@ -368,11 +439,17 @@ def main(
             continue
         if kind == "command":
             if argument == "/quit":
+                _render_telemetry(console, session_sink)
                 return 0
             if argument == "/status":
                 continue
+            if argument == "/telemetry":
+                _render_telemetry(console, session_sink)
+                continue
             if argument == "/help":
-                console.print("Commands: attack <target>, say <text>, /status, /help, /quit")
+                console.print(
+                    "Commands: attack <target>, say <text>, /status, /telemetry, /help, /quit"
+                )
             else:
                 console.print(f"Unknown command: {argument}")
             continue
@@ -381,7 +458,13 @@ def main(
                 console.print("The GM is off — run with --gm fake or --gm llm to talk.")
                 continue
             render_gm_result(
-                console, gm_service.on_player_say(GameId(view.game_id), argument), view
+                console,
+                gm_service.on_player_say(
+                    GameId(view.game_id),
+                    argument,
+                    correlation_id=new_correlation_id(),
+                ),
+                view,
             )
             continue
         if kind == "attack":
@@ -405,7 +488,7 @@ def main(
                 console.print(f"[red]{error}[/red]")
                 continue
             render_report(console, report, view)
-            _gm_react(console, gm_service, report)
+            _gm_react(console, gm_service, report, correlation_id=new_correlation_id())
             continue
         console.print("Unknown input — try: attack <target>")
 

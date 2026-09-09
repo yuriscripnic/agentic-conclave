@@ -115,3 +115,18 @@ export OPENROUTER_API_KEY=...   # shell only; never commit keys
 - `--gm off|llm|fake` — default `fake` (offline by default, like `--agent`).
 - Persona and caps live in `config/gm.toml`; model selection in `config/llm.toml` (`[profiles.gm]`).
 - GM failures never gate the game: a failed call simply prints nothing.
+
+## Observability (telemetry)
+
+Every LLM call becomes a structured `LLMInvocation` record — never prompts,
+payloads, or reasoning (CLAUDE.md §34). Three sinks: a JSON log line per call,
+an in-session totals table, and, with `--db postgres`, one row per call in
+`llm_invocations` (migration `003_llm_invocations.sql`; TEXT id columns so
+fake-gateway ids persist too).
+
+- `--debug` — per-call JSON lines on stderr, or to the file named by
+  `$CONCLAVE_TELEMETRY_LOG`.
+- `/telemetry` — per-agent/role session totals: calls, retries, tokens in/out,
+  estimated cost. The same table prints once when the session ends.
+- Telemetry never gates the game: a failing sink is dropped after one warning
+  and the session continues (Postgres failures degrade to logging-only).

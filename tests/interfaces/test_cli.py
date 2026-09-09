@@ -1,4 +1,5 @@
 # tests/interfaces/test_cli.py
+import json
 from io import StringIO
 
 import pytest
@@ -188,3 +189,78 @@ def test_main_gm_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     code = main(argv=["--gm", "llm"], console=console, input_fn=_scripted("/quit"))
     assert code == 2
     assert "OPENROUTER_API_KEY" in buffer.getvalue()
+
+
+def test_main_telemetry_command_prints_session_totals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    code = main(
+        argv=["--gm", "fake"],
+        console=console,
+        input_fn=_scripted("/telemetry", "/quit"),
+    )
+    assert code == 0
+    output = buffer.getvalue()
+    # once for /telemetry, once for the /quit session summary
+    assert output.count("LLM telemetry") == 2
+    assert "calls" in output and "retries" in output
+
+
+def test_main_end_of_session_summary_precedes_thanks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    console, buffer = _console()
+    lines = (
+        ["attack goblin scout"] * 30
+        + ["attack goblin skulker"] * 30
+        + ["attack orc brute"] * 60
+    )
+    code = main(argv=["--gm", "fake"], console=console, input_fn=_scripted(*lines))
+    assert code == 0
+    output = buffer.getvalue()
+    assert output.index("LLM telemetry") < output.index("Thanks for playing!")
+
+
+def test_main_debug_emits_parseable_telemetry_lines(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    log_file = tmp_path / "telemetry.jsonl"
+    monkeypatch.setenv("CONCLAVE_TELEMETRY_LOG", str(log_file))
+    console, buffer = _console()
+
+    code = main(
+        argv=["--gm", "fake", "--debug"],
+        console=console,
+        input_fn=_scripted("/quit"),
+    )
+
+    assert code == 0
+    lines = [line for line in log_file.read_text(encoding="utf-8").splitlines() if line]
+    assert lines  # the GM's opening call is already on the wire
+    expected_keys = {
+        "ts", "event", "game_id", "agent_id", "correlation_id", "request_id",
+        "provider", "model", "operation", "status", "error_kind", "latency_ms",
+        "input_tokens", "output_tokens", "total_tokens", "estimated_cost_usd",
+        "attempt", "retrieval_count", "tools_called",
+    }
+    for line in lines:
+        payload = json.loads(line)
+        assert set(payload) == expected_keys
+        assert payload["event"] == "llm_invocation"
+        assert payload["agent_id"] == "gm"
+
+
+def test_main_without_debug_stays_silent(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    log_file = tmp_path / "telemetry.jsonl"
+    monkeypatch.setenv("CONCLAVE_TELEMETRY_LOG", str(log_file))
+    console, buffer = _console()
+
+    code = main(argv=["--gm", "fake"], console=console, input_fn=_scripted("/quit"))
+
+    assert code == 0
+    assert log_file.read_text(encoding="utf-8") == ""
