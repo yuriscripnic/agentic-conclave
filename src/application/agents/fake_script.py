@@ -28,3 +28,28 @@ class ScriptedAgentGateway:
     ) -> StructuredModelResponse:
         self._inner.enqueue_structured(dict(self._decision()))
         return await self._inner.generate_structured(request, schema)
+
+
+class ScriptedGmGateway:
+    """Wraps a FakeModelGateway; re-enqueues a canned GM response before every call.
+
+    The decision callable receives the user prompt so it can key off the GM
+    task marker (narrate_open | react_to_events | respond_to_player).
+    """
+
+    def __init__(
+        self,
+        inner: FakeModelGateway,
+        decision: Callable[[str], Mapping[str, Any]],
+    ) -> None:
+        self._inner = inner
+        self._decision = decision
+
+    async def generate(self, request: ModelRequest) -> ModelResponse:
+        return await self._inner.generate(request)
+
+    async def generate_structured(
+        self, request: ModelRequest, schema: Mapping[str, Any]
+    ) -> StructuredModelResponse:
+        self._inner.enqueue_structured(dict(self._decision(request.messages[-1].content)))
+        return await self._inner.generate_structured(request, schema)
