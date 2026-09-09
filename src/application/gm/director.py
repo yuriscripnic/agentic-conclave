@@ -8,11 +8,18 @@ domain/rules engine (CLAUDE.md §1, §10).
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
-from application.gm.conversation import GmMessage
+from ai.agents.errors import AgentRuntimeError
+from ai.agents.runtime import AgentRuntime
+from ai.models.profiles import ModelProfileCatalog
+from ai.models.types import LLMInvocation
+from application.game_service import GameService
+from application.gm.conversation import GmConversation, GmMessage
 from application.gm.profiles import GmProfile
 from application.views import GameView, TurnReport
+from domain.common.ids import GameId
 from domain.events.collector import EventEnvelope
 
 _NOTABLE_EVENT_TYPES = frozenset({"character_defeated", "combat_ended"})
@@ -171,3 +178,117 @@ def _roster_lines(view: GameView) -> list[str]:
             state = f"{member.hp_current}/{member.hp_max} HP"
         lines.append(f"- {member.name} ({member.character_class or '?'}): {state}")
     return lines
+
+
+@dataclass(frozen=True)
+class GmResult:
+    """Narrative outcome of one GM hook; empty on any failure (spec D10)."""
+
+    narration: str | None = None
+    npc_reply: str | None = None
+    addressed_to: str | None = None
+    invocations: tuple[LLMInvocation, ...] = ()
+
+
+class GmDirector:
+    """Hook-called GM orchestrator: narrates what the rules engine did (spec §3.3).
+
+    Never gates the game: every failure path returns an empty GmResult.
+    """
+
+    def __init__(
+        self,
+        game_service: GameService,
+        runtime: AgentRuntime,
+        model_catalog: ModelProfileCatalog,
+        profile: GmProfile,
+        conversation: GmConversation,
+    ) -> None:
+        self._game_service = game_service
+        self._runtime = runtime
+        self._model_profile = model_catalog.get("gm")
+        self._profile = profile
+        self._conversation = conversation
+
+    def on_combat_open(self, game_id: GameId) -> GmResult:
+        view = self._game_service.get_view(game_id)
+        system, user = build_gm_context(
+            self._profile,
+            view,
+            [],
+            self._conversation.recent(self._profile.history_limit),
+            "narrate_open",
+        )
+        return self._decide(system, user, view)
+
+    def on_turn_report(self, game_id: GameId, report: TurnReport) -> GmResult | None:
+        """React to notable events only; None (zero LLM calls) otherwise (spec D3/D4).
+
+        `game_id` is accepted for interface symmetry with the other hooks and
+        for future API/Web adapters; the report carries its own scene view.
+        """
+        if not notable_events(report):
+            return None
+        name_by_id = {
+            member.id: member.name
+            for member in (*report.view.party, *report.view.enemies)
+        }
+        digest = digest_lines(report.events, name_by_id)
+        system, user = build_gm_context(
+            self._profile,
+            report.view,
+            digest,
+            self._conversation.recent(self._profile.history_limit),
+            "react_to_events",
+        )
+        return self._decide(system, user, report.view)
+
+    def on_player_say(self, game_id: GameId, text: str) -> GmResult:
+        view = self._game_service.get_view(game_id)
+        self._conversation.append(
+            GmMessage(speaker="player", text=" ".join(text.split()))
+        )
+        system, user = build_gm_context(
+            self._profile,
+            view,
+            [],
+            self._conversation.recent(self._profile.history_limit),
+            "respond_to_player",
+        )
+        result = self._decide(system, user, view)
+        if result.npc_reply is not None:
+            self._conversation.append(
+                GmMessage(speaker=result.addressed_to or "gm", text=result.npc_reply)
+            )
+        elif result.narration is not None:
+            self._conversation.append(
+                GmMessage(speaker="gm", text=result.narration)
+            )
+        return result
+
+    def _decide(self, system: str, user: str, view: GameView) -> GmResult:
+        """One structured GM decision; every failure becomes an empty GmResult."""
+        try:
+            response = self._runtime.decide_structured(
+                profile=self._model_profile,
+                system=system,
+                user=user,
+                schema=GM_RESPONSE_SCHEMA,
+            )
+        except AgentRuntimeError as error:
+            invocation = (
+                (error.last_invocation,) if error.last_invocation is not None else ()
+            )
+            return GmResult(invocations=invocation)
+        try:
+            narration, reply, addressed = map_gm_response(
+                response.data, self._profile, view
+            )
+        except InvalidGmResponseError:
+            return GmResult(invocations=(response.invocation,))
+        return GmResult(
+            narration=narration,
+            npc_reply=reply,
+            addressed_to=addressed,
+            invocations=(response.invocation,),
+        )
