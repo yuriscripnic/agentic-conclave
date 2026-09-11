@@ -1,7 +1,9 @@
 # Evaluation Design — Phase 18 (Roadmap Plan #9)
 
 Date: 2026-09-10
-Status: Approved (design sections approved in session; see git history)
+Status: Approved (design sections approved in session; see git history). Amended during
+planning: session package placement (§2.4, §4.1), scenario ground truth (§4.4), and the
+sanctioned initiative-determinism domain fix (§6).
 Upstream: `CLAUDE.md` (§28, §34, §44, §45, §46, §47, §50, §53, §63, §65, §66, §67), `docs/Agentic Conclave-Implementation Plan.md` §21 (Phase 18), `docs/superpowers/plans/README.md` row #9
 
 ## 1. Goal
@@ -34,9 +36,11 @@ Two truths from §65/§66 shape everything:
    (`eval-results/` is git-ignored) and `conclave-eval` prints a Rich summary table.
    Committed baselines are out of scope.
 4. **Approach A: `src/evaluation/` package over a shared session factory.** The CLI's game
-   wiring is extracted into an application-layer composition root that the CLI, the
-   evaluation harness, and the future API layer (Plan 10) all share — §63's shared-contract
-   rule, paid forward.
+   wiring is extracted into a composition root in a new top-level `src/session/` package that
+   the CLI, the evaluation harness, and the future API layer (Plan 10) all share — §63's
+   shared-contract rule, paid forward. (Amended during planning: the composition root must
+   import infrastructure to do its job, so it cannot live in the infrastructure-free
+   application layer — see §4.1.)
 
 ## 3. Current state (ground truth this design builds on)
 
@@ -69,8 +73,8 @@ conclave-eval CLI (src/evaluation/cli.py)
   ↓
 run_scenario() (src/evaluation/runner.py)
   ↓
-build_session(SessionConfig) (src/application/session.py)   ← shared with CLI, later API
-  ↓  per step: human input → apply_input() → AgentTurnService / GmDirector
+build_session(SessionConfig) (src/session/factory.py)   ← shared with CLI, later API
+  ↓  per step: human input → apply_input() (src/session/play.py) → AgentTurnService / GmDirector
   ↓  (one correlation_id per step, per Plan 8)
 EventRepository + InMemoryTelemetrySink + turn reports + PartyMessageBoard
   ↓
@@ -81,24 +85,58 @@ Evaluation contains **no game rules** and never mutates game state except throug
 application services — the same path the CLI drives (§71 invariant: LLMs propose, the
 domain decides).
 
-### 4.1 Session factory and shared input path (src/application/session.py)
+### 4.1 Session factory and shared input path (src/session/ — new top-level package)
 
-A composition root, extracted from the CLI with contracts preserved:
+A composition root, extracted from the CLI with contracts preserved. It lives in a new
+**top-level package `src/session/`**, not in `src/application/`: the composition root must
+import infrastructure (repositories, gateways, telemetry sinks) to do its job, while the
+application layer is kept infrastructure-free (CLAUDE.md §4 — infrastructure depends on
+application/domain abstractions, never the reverse). `src/session/` sits alongside the
+other top-level packages; `interfaces/` and `evaluation/` both import it.
 
-- `SessionConfig` (frozen dataclass): `seed`, `db` (`"memory" | "postgres"`),
-  `database_url` (`str | None`), `agent_mode` (`"fake" | "llm"`), `gm_mode`
-  (`"off" | "llm" | "fake"`), `gateway` (`ModelGateway | None` — injectable for scripted /
-  eval / test use), `provider` (`str | None` — used only when `gateway` is `None`).
-- `GameSession` (frozen dataclass): `game_service`, `turn_service`, `gm_director`
-  (`GmDirector | None`), `events` (event repository), `telemetry` (`TelemetrySink`).
-- `build_session(config) -> GameSession`: builds repositories (memory or Postgres via
-  `DATABASE_URL` semantics already established), party agents, GM director, telemetry
-  plumbing — moving the bodies of `build_service` / `_wire_party` / `_wire_gm`.
-- `apply_input(session, raw: str)` — the CLI loop's engine moved to the application layer:
-  parse (`parse_input` moves here), resolve target, submit the action command, advance
-  agent/enemy turns, trigger the GM reaction, returning outcome data for the caller to
-  render. The CLI keeps only rendering, `/commands`, and the REPL itself.
-- Domain layer untouched; CLI behavior byte-identical (existing suite is the gate).
+`src/session/factory.py` — wiring only, no rules, no rendering:
+
+- `SessionConfig` (frozen dataclass): `seed: int = 42`, `db: str = "memory"`
+  (`"memory" | "postgres"`, `DATABASE_URL` env semantics preserved verbatim),
+  `agent_mode: str | None = None` (`None` is the CLI's `"off"`; else `"fake" | "llm"`),
+  `gm_mode: str = "off"` (`"off" | "fake" | "llm"`), `gateway: ModelGateway | None = None`
+  (overrides the built gateway in every mode — eval/test injection), `provider: str | None
+  = None` (llm-mode provider override).
+- `GameSession` (frozen dataclass): `game_service`, `game_id: GameId`, `telemetry`
+  (the fresh `InMemoryTelemetrySink` — the composite sink is built internally and passed
+  to the services), `party_board: PartyMessageBoard`, `party_names: tuple[str, ...]`,
+  `turn_service: AgentTurnService | None`, `gm_director: GmDirector | None`,
+  `opening: GmResult | None`.
+- `build_session(config) -> GameSession`: full wiring — persistence backend, telemetry
+  composite (`[LoggingTelemetrySink, in-memory]` + Postgres sink when `db="postgres"` and
+  `DATABASE_URL` is set), the Arin fighter, party agents (fake: scripted gateway; llm:
+  real gateway; the party **join line is not printed here** — rendering stays in callers,
+  which read `party_names`), GM director, encounter, `start_combat`.
+- `open_session(config) -> GameSession`: `build_session` plus
+  `gm_director.on_combat_open(game_id, correlation_id=new_correlation_id())` stored as
+  `opening` — the session is ready to accept input. The CLI and the runner both use
+  `open_session`.
+
+`src/session/play.py` — the CLI loop's engine, moved verbatim where possible:
+
+- `parse_input(raw)` — moved unchanged (`interfaces.cli.app` re-exports it; the existing
+  test contract imports it from there, along with `build_service`).
+- `PendingTurn` (frozen): `kind` (`"enemy" | "agent"`), `turn_report`,
+  `agent_report` (`AgentTurnReport | None`), `gm_result` (`GmResult | None`).
+- `InputOutcome` (frozen): `kind` (`"empty" | "command" | "unknown" | "attack" | "say" |
+  "no_target" | "error"`), `argument`, `turn_report`, `gm_result`, `error`
+  (`str | None` — a captured `DomainError` message).
+- `advance(session) -> PendingTurn | None`: drives non-player turns — enemy active ⇒
+  `run_active_enemy_turns` + GM reaction (fresh correlation id); agent-controlled active
+  ⇒ `turn_service.take_turn` + GM reaction (same correlation id, per Plan 8); otherwise
+  `None` (the human's turn, or the game/combat is over). Exceptions propagate.
+- `apply_input(session, raw) -> InputOutcome`: parse, resolve target over
+  `(*party, *enemies)` by id or name, submit the attack command, trigger the GM reaction;
+  `say` ⇒ `gm.on_player_say`; unknown target ⇒ recorded, nothing submitted; `DomainError`
+  captured as `error`. `/`-commands and empty input are returned unparsed for the caller.
+
+The CLI keeps only rendering, `/commands`, and the REPL itself; its behavior stays
+byte-identical (the existing 26-test CLI suite is the gate). Domain layer untouched.
 
 ### 4.2 Scenario model (src/evaluation/model.py)
 
@@ -138,16 +176,34 @@ class Scenario:
 
 ### 4.4 Scenarios (three, concrete)
 
-1. **`goblin-skirmish`** — `seed=42`, `repeat_runs=2`, steps: two `attack` instructions
-   against the skirmish enemy. Checks: no `ActionRejected` (rule adherence), enemy
-   defeated, and cross-run event-type-sequence consistency (offline: must be identical;
+1. **`goblin-skirmish`** — `seed=42`, `repeat_runs=2`, steps:
+   `("attack goblin scout", "attack goblin skulker")`. (Amended during planning: the
+   original draft repeated `attack goblin scout`, which fails the scenario's own
+   no-rejections check under ground truth — the scout dies during step 2's pre-drain
+   because the AI party also attacks it, so the second attack is rejected "invalid
+   target". Verified offline: both corrected steps are accepted, zero rejections, both
+   goblins are defeated.) Checks: **no-rejections** (`rejection_count == 0` — rule
+   adherence), **skirmish-enemies-defeated** (both goblin names defeated in every run),
+   and **consistent-runs** (cross-run event-type-sequence agreement; offline must be 1.0 —
    this check is what catches harness regressions).
-2. **`instruction-following`** — an attack instruction naming a specific target; check that
-   the agent's submitted action targets it. Offline (scripted decision canned to match the
-   instruction) this validates harness plumbing; live it measures the model — same
-   scenario, two meanings, stated honestly.
-3. **`cooperation-smoke`** — full party, a `say` instruction; checks that party messages
-   occurred and no action was rejected.
+2. **`instruction-following`** — `seed=42`, `repeat_runs=1`, steps:
+   `("attack orc brute",)`. (Amended during planning: agents have no instruction channel —
+   the human instruction is executed deterministically by the player character — so the
+   original "check that the agent's submitted action targets it" was unmeasurable as
+   written.) The scenario now measures: (a) **player-attack-fidelity** — every run
+   contains an `attack_requested` from Arin targeting Orc Brute (the instruction, executed
+   through the rules engine); (b) **agents-attack-enemies** — every run contains at least
+   one `attack_requested` from a party agent (Brix/Mira/Sera) naming an enemy-roster
+   target: proposals that fail validation surface as `ActionRejected`, covered by the
+   **no-rejections** check. Offline (scripted decisions) both hold and validate harness
+   plumbing; live, (a) stays a harness check and (b) measures whether the model produces
+   legal attack proposals — same scenario, two meanings, stated honestly. Ground truth
+   offline: Arin's attack is accepted (a miss), zero rejections.
+3. **`cooperation-smoke`** — `seed=42`, `repeat_runs=1`, steps: `("say hold the line",)`,
+   GM enabled (fake offline). Checks: **party-messages-exchanged** (at least one party
+   message on the board — offline the scripted agents always post one) and
+   **no-rejections** (`rejection_count == 0`). Ground truth offline: the `say` triggers a
+   GM reaction with no state change; the drain-driven fight produces the party traffic.
 
 ### 4.5 Metrics (src/evaluation/metrics.py)
 
@@ -198,8 +254,14 @@ Computed over a `ScenarioResult`; `None` when not computable (never a fake 0 or 
 - `src/evaluation/` imports `application` + `ai` + reads `domain` event types as data; it
   never imports `interfaces/`, never imports provider SDKs, and mutates game state only
   through application services.
-- `src/application/session.py` is a composition root: pure wiring, no rules, no rendering.
-- Domain diff invariant: `git log master..HEAD -- src/domain` stays empty for this plan.
+- `src/session/` is a composition root: pure wiring, no rules, no rendering.
+- Domain diff invariant (amended): `git log master..HEAD -- src/domain` contains exactly
+  one sanctioned commit — Task 1's `roll_initiative` determinism fix. `roll_initiative`
+  currently breaks `(total, dexterity_modifier)` ties by `character_id.value`, a random
+  uuid4, which violates §47 ("The game engine should be deterministic even when the LLM is
+  not") and was observed to make two same-seed sessions diverge in turn order. The fix
+  sorts on `(-total, -dexterity_modifier)` only; Python's stable sort preserves
+  participant order. No other domain changes are permitted in this plan.
 - Within `src/evaluation/`, Rich appears only in `cli.py` (presentation), never in the
   runner or metrics.
 
@@ -213,8 +275,9 @@ Computed over a `ScenarioResult`; `None` when not computable (never a fake 0 or 
 - Checks and consistency: identical-seed event-sequence equality and mismatch detection;
   check pass/fail evaluation over a result.
 - Session factory + input path: the existing CLI suite (425 tests) must stay green after
-  the extraction; new unit tests for `build_session` in `memory` and `postgres` modes
-  (pgserver fixtures exist) and for `apply_input` dispatch (attack / say / unknown).
+  the extraction; new unit tests for `build_session`/`open_session` in `memory` and
+  `postgres` modes (pgserver fixtures exist) and for `advance`/`apply_input` dispatch
+  (enemy drain, agent turn, attack, say, unknown target).
 - `conclave-eval` CLI: exit codes, JSON file naming, table rendering, unknown-scenario and
   missing-API-key errors — all offline.
 - No new `live` tests; live evaluation is a manual, env-gated invocation.
@@ -232,13 +295,19 @@ Computed over a `ScenarioResult`; `None` when not computable (never a fake 0 or 
 
 Task-sized sequence for the implementation plan (TDD throughout):
 
-1. Session factory + shared input path extraction (CLI refactor, suite stays green).
-2. Evaluation package scaffolding: model + registry + `goblin-skirmish` + runner (offline).
-3. Metrics module with synthetic-record unit tests.
-4. Report writer + `eval-results/` gitignore.
-5. `conclave-eval` CLI + pyproject script entry + exit-code tests.
-6. Remaining scenarios (`instruction-following`, `cooperation-smoke`) + consistency.
-7. README + roadmap row #9 update; full offline gate; live smoke (manual, optional).
+1. `fix(domain)`: deterministic initiative tie-break in `roll_initiative` (+ tests) — the
+   one sanctioned domain change (see §6).
+2. `feat(session)`: the `src/session/` composition package (`factory.py` + `play.py`)
+   extracted from the CLI; suite stays green, CLI byte-identical.
+3. `feat(evaluation)`: scaffolding (errors / model / scenario registry / `goblin-skirmish`)
+   + `InMemoryTelemetrySink.invocations()` accessor.
+4. `feat(evaluation)`: metrics module with synthetic-record unit tests.
+5. `feat(evaluation)`: runner + `goblin-skirmish` end-to-end (offline) — consumes metrics.
+6. `feat(evaluation)`: report writer + `eval-results/` gitignore.
+7. `feat(evaluation)`: `conclave-eval` CLI + pyproject script entry + exit-code tests.
+8. `feat(evaluation)` + `docs`: remaining scenarios (`instruction-following`,
+   `cooperation-smoke`) + consistency wiring; README + roadmap row #9 update; full offline
+   gate; domain-diff check (except Task 1); live smoke (manual, optional).
 
 ## 10. Completion checklist
 
@@ -246,5 +315,6 @@ Task-sized sequence for the implementation plan (TDD throughout):
 - [ ] Every numeric metric is traceable to events or enriched invocations.
 - [ ] No prompts, payloads, API keys, or reasoning in any report artifact (§34/§50).
 - [ ] Evaluation drives only application services; zero rules logic in `src/evaluation/`.
-- [ ] Domain diff empty; CLI behavior unchanged; full offline suite green.
+- [ ] Domain diff is exactly Task 1's determinism fix; CLI behavior unchanged; full
+      offline suite green.
 - [ ] Live mode works with `OPENROUTER_API_KEY` and never runs in CI.
