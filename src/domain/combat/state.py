@@ -47,13 +47,9 @@ def roll_initiative(
                 tiebreaker=natural,
             )
         )
-    entries.sort(
-        key=lambda entry: (
-            -entry.total,
-            -entry.dexterity_modifier,
-            entry.character_id.value,
-        )
-    )
+    # Ties on (total, dexterity modifier) keep participant order: the sort is
+    # stable, so no random id is needed as a tiebreak (§47 reproducibility).
+    entries.sort(key=lambda entry: (-entry.total, -entry.dexterity_modifier))
     return entries
 
 

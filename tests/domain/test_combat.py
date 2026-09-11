@@ -110,7 +110,7 @@ def test_initiative_orders_by_total_then_dex_modifier() -> None:
     dex_mods = [1, 2]  # dex 13 -> +1, dex 14 -> +2
     ranking = sorted(
         zip(order, raw, dex_mods, strict=True),
-        key=lambda entry: (-(entry[1] + entry[2]), -entry[2], str(entry[0])),
+        key=lambda entry: (-(entry[1] + entry[2]), -entry[2]),
     )
     expected = [entry[0] for entry in ranking]
 
@@ -408,3 +408,16 @@ def test_enemy_policy_raises_without_living_opponents() -> None:
 
     with pytest.raises(AgentDecisionFailedError):
         policy.decide(game, game.enemy_ids[0])
+
+
+def test_initiative_ties_preserve_participant_order() -> None:
+    first = _fighter("First")
+    second = _fighter("Second")
+    characters = {first.id: first, second.id: second}
+    order = [first.id, second.id]
+    seed = _seed_with_rolls([7, 7])  # equal naturals, equal dex mods (+1 each)
+
+    entries = roll_initiative(DiceRoller(seed=seed), characters, order)
+
+    assert [entry.character_id for entry in entries] == order
+    assert entries[0].total == entries[1].total == 8
