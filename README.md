@@ -130,3 +130,19 @@ fake-gateway ids persist too).
   estimated cost. The same table prints once when the session ends.
 - Telemetry never gates the game: a failing sink is dropped after one warning
   and the session continues (Postgres failures degrade to logging-only).
+
+## Evaluation
+
+Run repeatable, seeded scenarios against real sessions:
+
+```bash
+.venv/bin/conclave-eval                              # all scenarios, offline (fake gateways)
+.venv/bin/conclave-eval --scenario goblin-skirmish   # one scenario
+.venv/bin/conclave-eval --repeat 5 --seed 7          # more runs for consistency stats
+OPENROUTER_API_KEY=... .venv/bin/conclave-eval --provider openrouter   # live comparison
+```
+
+Reports land in `eval-results/` (git-ignored): one JSON per scenario with checks,
+metrics (legal-action rate, rejections, retries, latency p50/p95, tokens/game,
+cost/game), per-run event sequences, and invocation summaries — never prompts,
+payloads, or keys. Offline runs are fully deterministic (same seed ⇒ same events).

@@ -23,3 +23,13 @@ def test_get_scenario_returns_goblin_skirmish() -> None:
 def test_get_scenario_unknown_name_raises_evaluation_error() -> None:
     with pytest.raises(EvaluationError, match="unknown scenario"):
         get_scenario("dragon-hoard")
+
+
+def test_registry_holds_the_three_scenarios() -> None:
+    from evaluation.scenarios import SCENARIOS
+
+    assert set(SCENARIOS) == {
+        "goblin-skirmish",
+        "instruction-following",
+        "cooperation-smoke",
+    }
