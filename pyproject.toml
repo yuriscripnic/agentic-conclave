@@ -23,6 +23,7 @@ dev = [
 
 [project.scripts]
 conclave = "interfaces.cli.app:main"
+conclave-eval = "evaluation.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
