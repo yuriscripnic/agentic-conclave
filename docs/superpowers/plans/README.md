@@ -27,7 +27,7 @@ mandated by the Implementation Plan document.
 | 6 | `2026-09-06-multi-agent-party.md` | Phase 14 — dynamic party, agent scheduler, public party communication | Complete |
 | 7 | `2026-09-06-agent-memory-pgvector.md` | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Complete |
 | 8 | `2026-09-09-observability.md` | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Complete |
-| 9 | *evaluation* | Phase 18 — repeatable evaluation scenarios and metrics | Not written |
+| 9 | `2026-09-10-evaluation-design.md` | Phase 18 — repeatable evaluation scenarios and metrics | Not started |
 | 10 | *web-api* | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Not written |
 | 11 | *web-ui* | Phase 20 — Web UI consuming the application/API layer | Not written |
 
