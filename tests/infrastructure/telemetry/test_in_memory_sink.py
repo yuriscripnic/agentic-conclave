@@ -63,3 +63,14 @@ def test_snapshot_counts_retries_tokens_and_cost() -> None:
     assert row.output_tokens == 15
     assert row.total_tokens == 45
     assert row.estimated_cost_usd == pytest.approx(0.002)
+
+
+def test_invocations_returns_records_in_order() -> None:
+    sink = InMemoryTelemetrySink()
+    first = _invocation(request_id="req-1")
+    second = _invocation(request_id="req-2")
+
+    sink.record(first)
+    sink.record(second)
+
+    assert sink.invocations() == (first, second)

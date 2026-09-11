@@ -41,6 +41,10 @@ class InMemoryTelemetrySink:
     def record(self, invocation: LLMInvocation) -> None:
         self._records.append(invocation)
 
+    def invocations(self) -> tuple[LLMInvocation, ...]:
+        """Every recorded invocation, in order (evaluation runner, spec §4.3)."""
+        return tuple(self._records)
+
     def snapshot(self) -> tuple[TelemetryTotals, ...]:
         buckets: dict[tuple[str, str], list[LLMInvocation]] = {}
         for record in self._records:

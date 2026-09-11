@@ -1,0 +1,1 @@
+"""Evaluation scenarios and metrics over real sessions (spec §4, Phase 18)."""
