@@ -95,7 +95,8 @@ const EVENT_FORMATTERS = {
   damage_applied: (p, n) =>
     `${n(p.character_id)} takes ${p.amount ?? "-"} damage (${p.hp_before ?? "-"} → ${p.hp_after ?? "-"})`,
   character_defeated: (p, n) => `${n(p.character_id)} is defeated!`,
-  action_rejected: (p) => `Action rejected (${p.action_type ?? "-"}): ${p.reason ?? "-"}`,
+  action_rejected: (p, n) =>
+    `${n(p.actor_id)}'s ${p.action_type ?? "-"} action rejected: ${p.reason ?? "-"}`,
   combat_ended: (p) => `Combat ends — ${p.winner_side ?? "-"} wins in round ${p.round_number ?? "-"}`,
 };
 
@@ -135,11 +136,6 @@ function loadLastSeq(gameId) {
 
 function persistLastSeq(gameId) {
   sessionStorage.setItem(`last_seq:${gameId}`, String(lastSeq));
-}
-
-function formatEvent(envelope) {
-  // Generic Task-3 line; Task 5 replaces this with a per-type formatter table.
-  return `${envelope.event_type} ${JSON.stringify(envelope.payload)}`;
 }
 
 function appendEvent(envelope, nameById) {
