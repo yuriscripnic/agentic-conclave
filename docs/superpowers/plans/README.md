@@ -30,6 +30,7 @@ mandated by the Implementation Plan document.
 | 9 | `2026-09-10-evaluation-design.md` | Phase 18 — repeatable evaluation scenarios and metrics | Complete |
 | 10 | `2026-09-13-web-api.md` | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Complete |
 | 11 | `2026-09-13-web-ui.md` | Phase 20 — Web UI consuming the application/API layer (static shell, polling, human-input drawer) | In-progress (awaiting manual smoke) |
+| 12 | `2026-09-13-full-adventure-loop.md` | Phase 21 — data-driven locations, per-character travel, arrival-driven combat, scene loop, scene-tagged memory (CLI-first); web exposure is Phase 22 | In-progress (awaiting recorded live CLI smoke) |
 
 ## Known documentation gaps (resolve before the corresponding plan)
 

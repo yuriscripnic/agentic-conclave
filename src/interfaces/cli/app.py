@@ -96,6 +96,11 @@ def main(
         action="store_true",
         help="emit per-call LLM telemetry lines (JSON) to stderr or $CONCLAVE_TELEMETRY_LOG",
     )
+    parser.add_argument(
+        "--world",
+        default=None,
+        help="location graph TOML (name under config/, e.g. world.toml) for travel scenes",
+    )
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
@@ -109,6 +114,7 @@ def main(
                 db=args.db,
                 agent_mode=None if args.agent == "off" else args.agent,
                 gm_mode=args.gm,
+                world_path=args.world,
             )
         )
     except (ValueError, PersistenceError, ModelError) as error:
