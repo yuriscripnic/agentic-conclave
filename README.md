@@ -118,6 +118,27 @@ export OPENCODE_API_KEY=...   # shell only; never commit keys
 - Persona and caps live in `config/gm.toml`; model selection in `config/llm.toml` (`[profiles.gm]`).
 - GM failures never gate the game: a failed call simply prints nothing.
 
+## Web API (Phase 19)
+
+A FastAPI adapter over the same application layer the CLI uses — one game loop,
+two interface adapters (`CLAUDE.md` §63). The HTTP contract (routes, DTOs,
+error map, idempotency) lives in `docs/architecture/domain-model-and-api.md`.
+
+```bash
+pip install -e ".[api]"        # fastapi + uvicorn
+conclave-api                   # http://127.0.0.1:8000/api/v1/health
+
+# Offline (deterministic) agents + GM, no API key required:
+CONCLAVE_AGENT_MODE=fake CONCLAVE_GM_MODE=fake conclave-api
+```
+
+Routes: `POST /games`, `GET /games/{id}`, `GET /games/{id}/status`,
+`GET /games/{id}/events`, `POST /games/{id}/input` (`"attack <target>"`,
+`"say <text>"`), `GET /health`. State-changing routes honor an
+`Idempotency-Key` header — a repeat key returns the first response
+unchanged. Single-process by design: combat, dice, and idempotency state are
+in-process (`workers=1`; contract §6).
+
 ## Observability (telemetry)
 
 Every LLM call becomes a structured `LLMInvocation` record — never prompts,

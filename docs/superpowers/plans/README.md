@@ -28,7 +28,7 @@ mandated by the Implementation Plan document.
 | 7 | `2026-09-06-agent-memory-pgvector.md` | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Complete |
 | 8 | `2026-09-09-observability.md` | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Complete |
 | 9 | `2026-09-10-evaluation-design.md` | Phase 18 — repeatable evaluation scenarios and metrics | Complete |
-| 10 | *web-api* | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Not written |
+| 10 | `2026-09-13-web-api.md` | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Complete |
 | 11 | *web-ui* | Phase 20 — Web UI consuming the application/API layer | Not written |
 
 ## Known documentation gaps (resolve before the corresponding plan)
@@ -37,11 +37,11 @@ mandated by the Implementation Plan document.
   root-free, pgvector bundled for Plan 7; session-scoped fixture verified against
   PostgreSQL 16.2); runtime uses `psycopg` 3 + `DATABASE_URL` with plain-SQL
   migrations. CLAUDE.md §36 needed no amendments.
-- The Implementation Plan references `docs/architecture/domain-model-and-api.md` for API
-  contracts, but the existing `docs/Agentic Conclave-domain-model-and-api.md` is a duplicate
-  of the architecture overview and contains **no** API/domain-model contracts. A real
-  contract document (endpoint schemas, DTO shapes, persistence model) must be written
-  before Plan 10 (*web-api*).
+- Resolved (pre-Plan 10): the API/domain-model contract lives at
+  `docs/architecture/domain-model-and-api.md` (endpoint schemas, DTO shapes,
+  error→HTTP map, idempotency semantics, persistence model). Plan 10 *web-api*
+  argues from it. The duplicate `docs/Agentic Conclave-domain-model-and-api.md`
+  remains an architecture-overview copy.
 - SRD 5.2 data (weapons, classes, spells) licensing/source file layout is undefined;
   Plan 1 keeps rule data as Python constants and later plans must introduce `data/rules/`.
 
