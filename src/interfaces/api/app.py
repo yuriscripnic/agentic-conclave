@@ -12,9 +12,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from interfaces.api.dto import (
+    EventEnvelopeResponse,
+    GameViewResponse,
     SessionResponse,
+    StatusResponse,
+    event_response,
     game_view_response,
     gm_response,
+    status_response,
 )
 from interfaces.api.store import IdempotencyStore, SessionRegistry
 from session.factory import SessionConfig
@@ -70,5 +75,21 @@ def create_app(*, agent_mode: str = "llm", gm_mode: str = "off") -> FastAPI:
             return SessionResponse(game_id=game_id, view=view, opening=opening)
 
         return _idempotent(http_request, SCOPE_CREATE_GAMES, 201, build)
+
+    @app.get("/api/v1/games/{game_id}")
+    def get_game(game_id: str) -> GameViewResponse:
+        session = registry.get(game_id)
+        return game_view_response(session.game_service.get_view(session.game_id))
+
+    @app.get("/api/v1/games/{game_id}/status")
+    def get_status(game_id: str) -> StatusResponse:
+        session = registry.get(game_id)
+        return status_response(session.game_service.get_view(session.game_id))
+
+    @app.get("/api/v1/games/{game_id}/events")
+    def get_events(game_id: str) -> dict[str, list[EventEnvelopeResponse]]:
+        session = registry.get(game_id)
+        events = session.game_service.get_events(session.game_id)
+        return {"events": [event_response(event) for event in events]}
 
     return app
