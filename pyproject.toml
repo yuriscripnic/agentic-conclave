@@ -33,6 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "infrastructure.persistence.postgres.migrations" = ["*.sql"]
+"interfaces.web.static" = ["*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

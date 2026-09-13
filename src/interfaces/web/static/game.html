@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agentic Conclave — Game</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body data-page="game">
+    <main>
+      <h1>Agentic Conclave</h1>
+      <p id="lead-in" class="lead-in" hidden></p>
+      <p id="status-line">Connecting…</p>
+      <p id="game-error" class="error" hidden></p>
+      <section id="party-panel" class="panel" hidden></section>
+      <section id="enemies-panel" class="panel" hidden></section>
+      <section id="combat-tracker" class="panel" hidden></section>
+      <p id="gm-strip" class="gm-strip" hidden></p>
+      <section id="event-feed-panel" class="panel">
+        <h2>Event feed</h2>
+        <ul id="event-feed"></ul>
+      </section>
+      <details id="input-drawer" class="drawer">
+        <summary>Your input</summary>
+        <form id="speak-form">
+          <h3>Speak</h3>
+          <textarea id="speak-textarea" rows="3" placeholder="Say something to the table…"></textarea>
+          <button id="speak-submit" type="submit">Speak</button>
+        </form>
+        <form id="attack-form">
+          <h3>Act — attack</h3>
+          <label for="attack-target">Target</label>
+          <select id="attack-target"></select>
+          <label for="attack-weapon">Weapon id (optional)</label>
+          <input id="attack-weapon" type="text" placeholder="e.g. longsword" />
+          <button id="attack-submit" type="submit">Attack</button>
+        </form>
+        <p id="drawer-result" hidden></p>
+      </details>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

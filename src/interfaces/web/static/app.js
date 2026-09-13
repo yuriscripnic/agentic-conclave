@@ -1,0 +1,539 @@
+"use strict";
+
+// Consume the Phase 19 API contract as-is (docs/architecture/domain-model-and-api.md).
+
+async function api(spec, options = {}) {
+  const [method, path] = spec.split(" ");
+  const response = await fetch(path, { method, ...options });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  if (!response.ok) {
+    const reason =
+      (body && (body.reason || body.message || body.detail)) ||
+      `request failed (${response.status})`;
+    const error = new Error(reason);
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+
+function showError(element, error) {
+  element.textContent = `Error ${error.status || ""}: ${error.message}`.trim();
+  element.hidden = false;
+}
+
+async function createGame(form, button, errorEl) {
+  errorEl.hidden = true;
+  errorEl.textContent = "";
+  button.disabled = true;
+  try {
+    const payload = { campaign_name: form.elements.campaign_name.value };
+    const seedRaw = form.elements.seed.value.trim();
+    if (seedRaw !== "") {
+      payload.seed = Number.parseInt(seedRaw, 10);
+    }
+    const created = await api("POST /api/v1/games", {
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    });
+    sessionStorage.setItem("game_id", created.game_id);
+    if (created.opening && created.opening.narration) {
+      sessionStorage.setItem("opening_narration", created.opening.narration);
+    }
+    if (created.opening && created.opening.npc_reply) {
+      sessionStorage.setItem("opening_npc_reply", created.opening.npc_reply);
+    }
+    window.location.href = "/games/" + encodeURIComponent(created.game_id);
+  } catch (error) {
+    showError(errorEl, error);
+    button.disabled = false;
+  }
+}
+
+function bootLobby() {
+  const form = document.getElementById("new-game-form");
+  if (!form) return;
+  const button = document.getElementById("create-game");
+  const errorEl = document.getElementById("lobby-error");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    createGame(form, button, errorEl);
+  });
+}
+
+const POLL_INTERVAL_MS = 2500;
+
+// Event-feed formatter table. Keys are wire event_type values (snake_case,
+// derived from the domain event class names in src/domain/events/events.py);
+// lines use payload fields only, verified against that file's dataclass
+// fields (BaseEvent.to_payload serializes fields verbatim).
+const EVENT_FORMATTERS = {
+  game_created: (p) => `Campaign created (seed ${p.seed ?? "-"})`,
+  game_started: () => "The game begins.",
+  initiative_rolled: (p, n) => `${n(p.character_id)} rolls initiative: ${p.total ?? "-"}`,
+  combat_started: (p) =>
+    `Combat begins — round ${p.round_number ?? "-"} (${(p.participant_ids || []).length} participants)`,
+  turn_started: (p, n) => `Round ${p.round_number ?? "-"}: ${n(p.actor_id)}'s turn`,
+  turn_ended: (p, n) => `Round ${p.round_number ?? "-"}: ${n(p.actor_id)} ends their turn`,
+  attack_requested: (p, n) => `${n(p.attacker_id)} attacks ${n(p.target_id)} with ${p.weapon_id ?? "-"}`,
+  attack_resolved: (p, n) => {
+    const outcome = p.critical ? "CRITICAL HIT" : p.hit ? "hit" : "miss";
+    return (
+      `${n(p.attacker_id)} attacks ${n(p.target_id)}: d20 ${p.roll ?? "-"} +` +
+      ` ${p.attack_bonus ?? "-"} = ${p.total ?? "-"} vs AC ${p.target_ac ?? "-"}` +
+      ` — ${outcome}`
+    );
+  },
+  damage_applied: (p, n) =>
+    `${n(p.character_id)} takes ${p.amount ?? "-"} damage (${p.hp_before ?? "-"} → ${p.hp_after ?? "-"})`,
+  character_defeated: (p, n) => `${n(p.character_id)} is defeated!`,
+  action_rejected: (p, n) =>
+    `${n(p.actor_id)}'s ${p.action_type ?? "-"} action rejected: ${p.reason ?? "-"}`,
+  combat_ended: (p) => `Combat ends — ${p.winner_side ?? "-"} wins in round ${p.round_number ?? "-"}`,
+};
+
+function formatEvent(envelope, nameById = {}) {
+  const payload = envelope.payload || {};
+  const resolve = (id) => (nameById && nameById[id]) || String(id ?? "-");
+  const formatter = EVENT_FORMATTERS[envelope.event_type];
+  if (!formatter) {
+    // Unknown type: show it verbatim plus the raw payload (never lie by omission).
+    return `— ${envelope.event_type}\n${JSON.stringify(payload)}`;
+  }
+  return formatter(payload, resolve);
+}
+
+let lastSeq = 0; // highest event sequence already rendered (client-side filtering)
+let pollTimer = null;
+let pollInFlight = false;
+let currentGameId = null; // set by bootGame; drawer POSTs target it and the immediate refresh uses it
+
+function parseGameId() {
+  const marker = "/games/";
+  const index = window.location.pathname.indexOf(marker);
+  if (index === -1) return null;
+  const raw = window.location.pathname.slice(index + marker.length);
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function loadLastSeq(gameId) {
+  const stored = sessionStorage.getItem(`last_seq:${gameId}`);
+  if (stored === null) return 0;
+  const value = Number.parseInt(stored, 10);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function persistLastSeq(gameId) {
+  sessionStorage.setItem(`last_seq:${gameId}`, String(lastSeq));
+}
+
+function appendEvent(envelope, nameById) {
+  const feed = document.getElementById("event-feed");
+  if (!feed) return;
+  const item = document.createElement("li");
+  // textContent only — model data is never assigned to markup.
+  item.textContent = `[${envelope.sequence}] ${formatEvent(envelope, nameById)}`;
+  feed.prepend(item); // newest on top
+}
+
+function ingestEvents(gameId, envelopes, nameById) {
+  const fresh = envelopes.filter((env) => env.sequence > lastSeq);
+  for (const env of fresh) appendEvent(env, nameById);
+  if (fresh.length > 0) {
+    lastSeq = Math.max(lastSeq, ...fresh.map((env) => env.sequence));
+    persistLastSeq(gameId);
+  }
+}
+
+// Task 4: panels render from server fields ONLY (GameView contract), never
+// from derived rules math. The only "condition" computed client-side is the
+// is_defeated styling sent by the API.
+
+function buildElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function hpBarPercent(hpCurrent, hpMax) {
+  // Presentation only: width of the bar visual, clamped 0..100.
+  if (!hpMax || hpMax <= 0) return 0;
+  const percent = (hpCurrent / hpMax) * 100;
+  if (!Number.isFinite(percent)) return 0;
+  return Math.min(100, Math.max(0, percent));
+}
+
+function appendConditionTags(row, member) {
+  const tags = buildElement("span", "condition-tags");
+  for (const condition of member.conditions || []) {
+    tags.appendChild(buildElement("span", "condition-tag", condition ?? "-"));
+  }
+  if (member.is_defeated) {
+    tags.appendChild(buildElement("span", "condition-tag condition-defeated", "defeated"));
+  }
+  row.appendChild(tags);
+}
+
+function appendHpBar(row, member) {
+  const hpMax = member.hp_max ?? 0;
+  const hpCurrent = member.hp_current ?? 0;
+  const bar = buildElement("span", "hp-bar");
+  const fill = buildElement("span", "hp-fill");
+  fill.style.width = `${hpBarPercent(hpCurrent, hpMax)}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  row.appendChild(buildElement("span", "hp-text", `${hpCurrent} / ${hpMax}`));
+}
+
+function rosterRow(member, isParty) {
+  const row = buildElement("li", isParty ? "roster-row party" : "roster-row enemy");
+  if (member.is_defeated) row.classList.add("defeated");
+  row.appendChild(buildElement("span", "member-name", member.name ?? "-"));
+  row.appendChild(
+    buildElement(
+      "span",
+      "member-class",
+      `${member.character_class ?? "-"} · level ${member.level ?? "-"}`,
+    ),
+  );
+  appendHpBar(row, member);
+  row.appendChild(buildElement("span", "member-ac", `AC ${member.armor_class ?? "-"}`));
+  appendConditionTags(row, member);
+  return row;
+}
+
+// Shared roster builder: party roster (emphasis) and enemies (no emphasis).
+function renderParty(container, members, { isParty = true } = {}) {
+  if (!container) return;
+  const list = members || [];
+  if (list.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.replaceChildren(); // idempotent re-render each poll
+  container.appendChild(buildElement("h2", null, isParty ? "Party" : "Enemies"));
+  const rows = buildElement("ul", "roster");
+  for (const member of list) rows.appendChild(rosterRow(member, isParty));
+  container.appendChild(rows);
+}
+
+// Combat tracker: hidden entirely when combat is null (status line stays).
+function renderCombatTracker(view) {
+  const tracker = document.getElementById("combat-tracker");
+  if (!tracker) return;
+  const combat = (view && view.combat) || null;
+  if (!combat) {
+    tracker.hidden = true;
+    tracker.replaceChildren();
+    return;
+  }
+  tracker.hidden = false;
+  tracker.replaceChildren(); // idempotent re-render each poll
+  tracker.appendChild(
+    buildElement("h2", null, `Combat — round ${combat.round_number ?? "-"} (${combat.status ?? "-"})`),
+  );
+  const order = buildElement("ul", "initiative-order");
+  for (const entry of combat.initiative_order || []) {
+    const item = buildElement("li", "initiative-entry");
+    if (combat.active_actor_id && entry.character_id === combat.active_actor_id) {
+      item.classList.add("active-actor");
+    }
+    item.appendChild(buildElement("span", "initiative-name", entry.name ?? "-"));
+    item.appendChild(buildElement("span", "initiative-total", `${entry.total ?? "-"}`));
+    order.appendChild(item);
+  }
+  tracker.appendChild(order);
+}
+
+function render(status, view) {
+  const statusLine = document.getElementById("status-line");
+  if (!statusLine) return;
+  const combat = (view && view.combat) || null;
+  let text = `Game status: ${(status && status.status) ?? "-"}`;
+  if (combat) {
+    text += ` — combat round ${combat.round_number} (${combat.status})`;
+  }
+  if (status.game_over) {
+    text += " — game over";
+  }
+  statusLine.textContent = text;
+  renderParty(document.getElementById("party-panel"), view && view.party, { isParty: true });
+  renderParty(document.getElementById("enemies-panel"), view && view.enemies, { isParty: false });
+  renderCombatTracker(view);
+}
+
+function nameMapFromView(view) {
+  // Presentation-only id→name lookup for event feed lines; unknown ids fall
+  // back to the raw id inside formatEvent.
+  const map = {};
+  const members = (view && view.party) || [];
+  const enemies = (view && view.enemies) || [];
+  for (const member of [...members, ...enemies]) {
+    if (member && member.id) map[member.id] = member.name ?? member.id;
+  }
+  return map;
+}
+
+async function pollOnce(gameId, errorEl) {
+  const [status, view] = await Promise.all([
+    api(`GET /api/v1/games/${gameId}/status`),
+    api(`GET /api/v1/games/${gameId}`),
+  ]);
+  if (status.game_over) {
+    stopPolling();
+  }
+  render(status, view);
+  populateTargetSelect(view);
+  const feed = await api(`GET /api/v1/games/${gameId}/events`);
+  ingestEvents(gameId, feed.events || [], nameMapFromView(view));
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function startPolling(gameId, errorEl) {
+  if (pollTimer !== null) return;
+  const tick = async () => {
+    if (pollInFlight) return; // guard against overlapping in-flight requests
+    pollInFlight = true;
+    try {
+      await pollOnce(gameId, errorEl);
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    } catch (error) {
+      // Polling errors never kill the timer; only game_over stops the loop.
+      showError(errorEl, error);
+    } finally {
+      pollInFlight = false;
+      // A POST that landed while this poll was in flight marked its refresh
+      // pending; consume it here (tick and refreshOnce are the only two
+      // finally blocks that own the in-flight guard), so every successful
+      // POST still gets exactly one refresh even when it collides with a poll.
+      if (refreshPending) {
+        refreshPending = false;
+        void refreshOnce(gameId, errorEl); // the guard is free; runs immediately
+      }
+    }
+  };
+  tick();
+  pollTimer = setInterval(tick, POLL_INTERVAL_MS);
+}
+
+// Task 6 — human input drawer, collapsed by default (<details> in game.html).
+// Two lanes: speak (/input) and act (/actions). Targets are built from the
+// latest polled GameView; resolution stays server-side (resolve_target).
+
+// One immediate poll refresh after any successful POST, so the drawer's
+// effect appears instantly instead of waiting for the 2.5 s tick. If a POST
+// lands while a poll/refresh is in flight, the refresh is marked pending;
+// both finally blocks that release the in-flight guard (the poll tick's and
+// refreshOnce's own) consume the flag immediately, so every successful POST
+// is guaranteed exactly one refresh, never skipped. When refreshOnce's
+// finally consumes a pending flag it recurses once, carefully after
+// resetting the guard and clearing the flag first, so the recursion cannot
+// loop: the recursive call finds the guard free and `refreshPending` false.
+let refreshPending = false;
+
+async function refreshOnce(gameId, errorEl) {
+  if (pollInFlight) {
+    refreshPending = true;
+    return;
+  }
+  pollInFlight = true;
+  try {
+    await pollOnce(gameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    pollInFlight = false;
+    if (refreshPending) {
+      refreshPending = false;
+      await refreshOnce(gameId, errorEl); // guard is free now; runs immediately
+    }
+  }
+}
+
+function showGmStrip(kind, gm) {
+  const strip = document.getElementById("gm-strip");
+  if (!strip) return;
+  const parts = [];
+  if (kind) parts.push(`[${kind}]`);
+  if (gm && gm.narration) parts.push(gm.narration);
+  if (gm && gm.npc_reply) parts.push(gm.npc_reply);
+  if (parts.length === 0) {
+    strip.hidden = true;
+    strip.textContent = "";
+    return;
+  }
+  // textContent only — model output is never assigned to markup.
+  strip.textContent = parts.join("\n");
+  strip.hidden = false;
+}
+
+function reportRejection(element, report) {
+  element.textContent = `Rejected (${report.error_code ?? "-"}): ${report.reason ?? "-"}`;
+  element.hidden = false;
+}
+
+function setDrawerDisabled(disabled) {
+  // Disable the whole drawer while any submit is in flight.
+  const drawer = document.getElementById("input-drawer");
+  if (!drawer) return;
+  for (const control of drawer.querySelectorAll("button, textarea, input, select")) {
+    control.disabled = disabled;
+  }
+}
+
+function populateTargetSelect(view) {
+  const select = document.getElementById("attack-target");
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren();
+  // A targetless attack is plausible server-side (resolve_target only runs
+  // when action.target is given), so an explicit "no target" option exists.
+  const noTarget = buildElement("option", null, "No target");
+  // Explicit empty value: without it the option value defaults to its text
+  // content and the `targetSelect.value !== ""` guard below never fires.
+  noTarget.value = "";
+  select.appendChild(noTarget);
+  const members = (view && view.party ? view.party : []).concat(view && view.enemies ? view.enemies : []);
+  for (const member of members) {
+    if (!member || !member.id) continue;
+    const option = buildElement(
+      "option",
+      null,
+      `${member.name ?? member.id} — ${member.hp_current ?? "-"} / ${member.hp_max ?? "-"}`,
+    );
+    option.value = member.id;
+    select.appendChild(option);
+  }
+  if ([...select.options].some((option) => option.value === previous)) {
+    select.value = previous; // keep the player's selection across polls
+  }
+}
+
+async function submitSpeak(conversation, resultEl, errorEl) {
+  errorEl.hidden = true;
+  errorEl.textContent = "";
+  const text = conversation.value.trim();
+  if (text === "") return; // empty input is a no-op, no request sent
+  setDrawerDisabled(true);
+  try {
+    const response = await api(`POST /api/v1/games/${currentGameId}/input`, {
+      headers: {
+        "Content-Type": "application/json",
+        // Fresh key per submit; a key is never reused across submissions.
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ text }),
+    });
+    showGmStrip(response.kind, response.gm);
+    const report = response.report;
+    if (report && report.accepted === false) {
+      reportRejection(resultEl, report);
+    } else {
+      conversation.value = "";
+      resultEl.hidden = true;
+      resultEl.textContent = "";
+    }
+    await refreshOnce(currentGameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    setDrawerDisabled(false);
+  }
+}
+
+async function submitAttack(targetSelect, weaponInput, resultEl, errorEl) {
+  errorEl.hidden = true;
+  errorEl.textContent = "";
+  resultEl.hidden = true;
+  resultEl.textContent = "";
+  setDrawerDisabled(true);
+  try {
+    const payload = { action_type: "attack" };
+    if (targetSelect.value !== "") payload.target = targetSelect.value;
+    const weapon = weaponInput.value.trim();
+    if (weapon !== "") payload.weapon_id = weapon;
+    const report = await api(`POST /api/v1/games/${currentGameId}/actions`, {
+      headers: {
+        "Content-Type": "application/json",
+        // Fresh key per submit; a key is never reused across submissions.
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (report.accepted) {
+      resultEl.textContent = "Attack submitted.";
+      resultEl.hidden = false;
+    } else {
+      reportRejection(resultEl, report);
+    }
+    await refreshOnce(currentGameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    setDrawerDisabled(false);
+  }
+}
+
+function wireDrawer(errorEl) {
+  const conversation = document.getElementById("speak-textarea");
+  const conversationForm = document.getElementById("speak-form");
+  const targetSelect = document.getElementById("attack-target");
+  const weaponInput = document.getElementById("attack-weapon");
+  const attackForm = document.getElementById("attack-form");
+  const resultEl = document.getElementById("drawer-result");
+  if (!conversationForm || !attackForm) return;
+  conversationForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitSpeak(conversation, resultEl, errorEl);
+  });
+  attackForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitAttack(targetSelect, weaponInput, resultEl, errorEl);
+  });
+}
+
+function bootGame() {
+  const leadIn = document.getElementById("lead-in");
+  if (!leadIn) return;
+  const narration = sessionStorage.getItem("opening_narration");
+  if (narration) {
+    leadIn.textContent = narration;
+    leadIn.hidden = false;
+  }
+  const gameId = parseGameId();
+  if (!gameId) return;
+  currentGameId = gameId;
+  lastSeq = loadLastSeq(gameId);
+  const errorEl = document.getElementById("game-error");
+  wireDrawer(errorEl);
+  startPolling(gameId, errorEl);
+}
+
+function boot() {
+  const page = document.body.dataset.page;
+  if (page === "lobby") bootLobby();
+  if (page === "game") bootGame();
+}
+
+boot();
