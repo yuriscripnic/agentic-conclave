@@ -46,11 +46,14 @@ def _error_kind(exc: ModelError) -> str:
 
 
 class OpenRouterModelGateway:
+    PROVIDER_NAME = "openrouter"
+    DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
     def __init__(
         self,
         api_key: str,
         *,
-        base_url: str = "https://openrouter.ai/api/v1",
+        base_url: str | None = None,
         client: httpx.AsyncClient | None = None,
         pricing: Mapping[str, ModelPricing] | None = None,
         app_url: str | None = None,
@@ -59,7 +62,7 @@ class OpenRouterModelGateway:
         if not api_key:
             raise MissingAPIKeyError("OpenRouter API key is empty; set OPENROUTER_API_KEY")
         self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
+        self._base_url = (base_url or self.DEFAULT_BASE_URL).rstrip("/")
         self._client = client
         self._pricing = dict(pricing) if pricing is not None else {}
         self._app_url = app_url
@@ -77,7 +80,7 @@ class OpenRouterModelGateway:
         usage = self._usage(body)
         model = str(body.get("model", request.model))
         invocation = LLMInvocation(
-            provider="openrouter",
+            provider=self.PROVIDER_NAME,
             model=model,
             operation="generate",
             status="ok",
@@ -111,7 +114,7 @@ class OpenRouterModelGateway:
         usage = self._usage(body)
         model = str(body.get("model", request.model))
         invocation = LLMInvocation(
-            provider="openrouter",
+            provider=self.PROVIDER_NAME,
             model=model,
             operation="generate_structured",
             status="ok",
@@ -146,7 +149,7 @@ class OpenRouterModelGateway:
         )
         model = str(body.get("model", request.model))
         invocation = LLMInvocation(
-            provider="openrouter",
+            provider=self.PROVIDER_NAME,
             model=model,
             operation="embed",
             status="ok",
@@ -182,7 +185,7 @@ class OpenRouterModelGateway:
     ) -> ModelError:
         status = "timeout" if isinstance(exc, ModelTimeoutError) else "error"
         exc.invocation = LLMInvocation(
-            provider="openrouter",
+            provider=self.PROVIDER_NAME,
             model=model,
             operation=operation,
             status=status,
@@ -268,14 +271,18 @@ class OpenRouterModelGateway:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
-    async def _post(
-        self, url: str, payload: dict[str, Any], timeout_seconds: float
-    ) -> httpx.Response:
+    def _default_headers(self) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         if self._app_url is not None:
             headers["HTTP-Referer"] = self._app_url
         if self._app_title is not None:
             headers["X-Title"] = self._app_title
+        return headers
+
+    async def _post(
+        self, url: str, payload: dict[str, Any], timeout_seconds: float
+    ) -> httpx.Response:
+        headers = self._default_headers()
         timeout = httpx.Timeout(timeout_seconds)
         if self._client is not None:
             return await self._client.post(
