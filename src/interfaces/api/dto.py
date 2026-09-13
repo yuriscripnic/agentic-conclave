@@ -81,6 +81,12 @@ class SessionResponse(BaseModel):
     opening: GmResponse | None
 
 
+class InputResponse(BaseModel):
+    kind: str
+    report: TurnReportResponse | None
+    gm: GmResponse | None
+
+
 def game_view_response(view: GameView) -> GameViewResponse:
     return GameViewResponse.model_validate(view, from_attributes=True)
 

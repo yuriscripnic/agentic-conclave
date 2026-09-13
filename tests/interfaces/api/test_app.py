@@ -147,3 +147,55 @@ def test_action_on_unknown_target_maps_to_404(game_id: str, client: TestClient) 
 
     assert response.status_code == 404
     assert response.json()["error"] == "character_not_found"
+
+
+def test_say_input_roundtrips_gm(game_id: str, client: TestClient) -> None:
+    response = client.post(
+        f"/api/v1/games/{game_id}/input", json={"text": "say hello there"}, headers=_idem("say-1")
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kind"] == "say"
+
+
+def test_empty_input_reports_kind_without_execution(game_id: str, client: TestClient) -> None:
+    response = client.post(f"/api/v1/games/{game_id}/input", json={"text": "  "})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kind"] == "empty"
+    assert body["report"] is None
+
+
+def test_attack_via_input_end_to_end(game_id: str, client: TestClient) -> None:
+    enemy_name = _view(client, game_id)["enemies"][0]["name"]
+
+    response = client.post(
+        f"/api/v1/games/{game_id}/input",
+        json={"text": f"attack {enemy_name}"},
+        headers=_idem(f"input-atk-{game_id}"),
+    )
+
+    body = response.json()
+    assert body["kind"] == "attack"
+    assert body["report"] is not None
+    assert body["report"]["accepted"] is True
+
+
+def test_input_idempotent_replay(game_id: str, client: TestClient) -> None:
+    enemy_name = _view(client, game_id)["enemies"][0]["name"]
+
+    first = client.post(
+        f"/api/v1/games/{game_id}/input",
+        json={"text": f"attack {enemy_name}"},
+        headers=_idem("input-repeat"),
+    )
+    second = client.post(
+        f"/api/v1/games/{game_id}/input",
+        json={"text": f"attack {enemy_name}"},
+        headers=_idem("input-repeat"),
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert second.json() == first.json()

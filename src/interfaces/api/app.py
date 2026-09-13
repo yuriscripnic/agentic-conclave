@@ -21,6 +21,7 @@ from domain.common.ids import CharacterId
 from interfaces.api.dto import (
     EventEnvelopeResponse,
     GameViewResponse,
+    InputResponse,
     SessionResponse,
     StatusResponse,
     TurnReportResponse,
@@ -33,7 +34,7 @@ from interfaces.api.dto import (
 from interfaces.api.errors import register_error_handlers
 from interfaces.api.store import IdempotencyStore, SessionRegistry
 from session.factory import GameSession, SessionConfig
-from session.play import advance
+from session.play import advance, apply_input
 
 SCOPE_CREATE_GAMES = "POST /games"
 
@@ -47,6 +48,10 @@ class ActionRequest(BaseModel):
     action_type: str
     target: str | None = None  # id or case-insensitive name, CLI-style
     weapon_id: str | None = None
+
+
+class InputRequest(BaseModel):
+    text: str
 
 
 def resolve_target(game_view: GameView, raw: str) -> str:
@@ -151,6 +156,23 @@ def create_app(*, agent_mode: str = "llm", gm_mode: str = "off") -> FastAPI:
             return turn_report_response(report)
 
         return _idempotent(http_request, f"games/{game_id}/actions", 200, build)
+
+    @app.post("/api/v1/games/{game_id}/input")
+    def submit_input(game_id: str, input_request: InputRequest, http_request: Request) -> Response:
+        def build() -> InputResponse:
+            session = registry.get(game_id)
+            with registry.lock_for(game_id):
+                drive_non_players(session)
+                outcome = apply_input(session, input_request.text)
+            return InputResponse(
+                kind=outcome.kind,
+                report=turn_report_response(outcome.turn_report)
+                if outcome.turn_report is not None
+                else None,
+                gm=gm_response(outcome.gm_result),
+            )
+
+        return _idempotent(http_request, f"games/{game_id}/input", 200, build)
 
     register_error_handlers(app)
     return app
