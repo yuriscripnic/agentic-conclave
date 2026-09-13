@@ -225,9 +225,6 @@ def main(
         console.print("Unknown input — try: attack <target>")
 
 
-if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
-
 def _render_scene_tick(console: Console, tick: SceneTick) -> None:
     """Render one out-of-combat scene step; never prints internal state."""
     if tick.kind != "scene_action":
@@ -238,3 +235,7 @@ def _render_scene_tick(console: Console, tick: SceneTick) -> None:
         render_report(console, tick.travel_report, tick.travel_report.view)
     if tick.narration:
         console.print(f"[italic]{tick.narration}[/italic]")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
