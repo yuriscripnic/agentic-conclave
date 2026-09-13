@@ -28,7 +28,7 @@ mandated by the Implementation Plan document.
 | 7 | `2026-09-06-agent-memory-pgvector.md` | Phases 15–16 — working/episodic/semantic memory, pgvector, context builder | Complete |
 | 8 | `2026-09-09-observability.md` | Phase 17 — `LLMInvocation` telemetry, structured logging, correlation IDs | Complete |
 | 9 | `2026-09-10-evaluation-design.md` | Phase 18 — repeatable evaluation scenarios and metrics | Complete |
-| 10 | *web-api* | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Not written |
+| 10 | `2026-09-13-web-api.md` | Phase 19 — FastAPI adapter, DTOs, idempotency keys | Complete |
 | 11 | *web-ui* | Phase 20 — Web UI consuming the application/API layer | Not written |
 
 ## Known documentation gaps (resolve before the corresponding plan)
