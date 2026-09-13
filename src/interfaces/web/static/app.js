@@ -71,6 +71,45 @@ function bootLobby() {
 
 const POLL_INTERVAL_MS = 2500;
 
+// Event-feed formatter table. Keys are wire event_type values (snake_case,
+// derived from the domain event class names in src/domain/events/events.py);
+// lines use payload fields only, verified against that file's dataclass
+// fields (BaseEvent.to_payload serializes fields verbatim).
+const EVENT_FORMATTERS = {
+  game_created: (p) => `Campaign created (seed ${p.seed ?? "-"})`,
+  game_started: () => "The game begins.",
+  initiative_rolled: (p, n) => `${n(p.character_id)} rolls initiative: ${p.total ?? "-"}`,
+  combat_started: (p) =>
+    `Combat begins — round ${p.round_number ?? "-"} (${(p.participant_ids || []).length} participants)`,
+  turn_started: (p, n) => `Round ${p.round_number ?? "-"}: ${n(p.actor_id)}'s turn`,
+  turn_ended: (p, n) => `Round ${p.round_number ?? "-"}: ${n(p.actor_id)} ends their turn`,
+  attack_requested: (p, n) => `${n(p.attacker_id)} attacks ${n(p.target_id)} with ${p.weapon_id ?? "-"}`,
+  attack_resolved: (p, n) => {
+    const outcome = p.critical ? "CRITICAL HIT" : p.hit ? "hit" : "miss";
+    return (
+      `${n(p.attacker_id)} attacks ${n(p.target_id)}: d20 ${p.roll ?? "-"} +` +
+      ` ${p.attack_bonus ?? "-"} = ${p.total ?? "-"} vs AC ${p.target_ac ?? "-"}` +
+      ` — ${outcome}`
+    );
+  },
+  damage_applied: (p, n) =>
+    `${n(p.character_id)} takes ${p.amount ?? "-"} damage (${p.hp_before ?? "-"} → ${p.hp_after ?? "-"})`,
+  character_defeated: (p, n) => `${n(p.character_id)} is defeated!`,
+  action_rejected: (p) => `Action rejected (${p.action_type ?? "-"}): ${p.reason ?? "-"}`,
+  combat_ended: (p) => `Combat ends — ${p.winner_side ?? "-"} wins in round ${p.round_number ?? "-"}`,
+};
+
+function formatEvent(envelope, nameById = {}) {
+  const payload = envelope.payload || {};
+  const resolve = (id) => (nameById && nameById[id]) || String(id ?? "-");
+  const formatter = EVENT_FORMATTERS[envelope.event_type];
+  if (!formatter) {
+    // Unknown type: show it verbatim plus the raw payload (never lie by omission).
+    return `— ${envelope.event_type}\n${JSON.stringify(payload)}`;
+  }
+  return formatter(payload, resolve);
+}
+
 let lastSeq = 0; // highest event sequence already rendered (client-side filtering)
 let pollTimer = null;
 let pollInFlight = false;
@@ -103,17 +142,18 @@ function formatEvent(envelope) {
   return `${envelope.event_type} ${JSON.stringify(envelope.payload)}`;
 }
 
-function appendEvent(envelope) {
+function appendEvent(envelope, nameById) {
   const feed = document.getElementById("event-feed");
   if (!feed) return;
   const item = document.createElement("li");
-  item.textContent = `[${envelope.sequence}] ${formatEvent(envelope)}`;
+  // textContent only — model data is never assigned to markup.
+  item.textContent = `[${envelope.sequence}] ${formatEvent(envelope, nameById)}`;
   feed.prepend(item); // newest on top
 }
 
-function ingestEvents(gameId, envelopes) {
+function ingestEvents(gameId, envelopes, nameById) {
   const fresh = envelopes.filter((env) => env.sequence > lastSeq);
-  for (const env of fresh) appendEvent(env);
+  for (const env of fresh) appendEvent(env, nameById);
   if (fresh.length > 0) {
     lastSeq = Math.max(lastSeq, ...fresh.map((env) => env.sequence));
     persistLastSeq(gameId);
@@ -239,6 +279,18 @@ function render(status, view) {
   renderCombatTracker(view);
 }
 
+function nameMapFromView(view) {
+  // Presentation-only id→name lookup for event feed lines; unknown ids fall
+  // back to the raw id inside formatEvent.
+  const map = {};
+  const members = (view && view.party) || [];
+  const enemies = (view && view.enemies) || [];
+  for (const member of [...members, ...enemies]) {
+    if (member && member.id) map[member.id] = member.name ?? member.id;
+  }
+  return map;
+}
+
 async function pollOnce(gameId, errorEl) {
   const [status, view] = await Promise.all([
     api(`GET /api/v1/games/${gameId}/status`),
@@ -249,7 +301,7 @@ async function pollOnce(gameId, errorEl) {
   }
   render(status, view);
   const feed = await api(`GET /api/v1/games/${gameId}/events`);
-  ingestEvents(gameId, feed.events || []);
+  ingestEvents(gameId, feed.events || [], nameMapFromView(view));
 }
 
 function stopPolling() {
