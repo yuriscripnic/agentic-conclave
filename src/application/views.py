@@ -36,6 +36,14 @@ class CombatView:
 
 
 @dataclass(frozen=True)
+class SceneView:
+    location_id: str
+    name: str
+    description: str
+    exits: list[tuple[str, str]]
+
+
+@dataclass(frozen=True)
 class GameView:
     game_id: str
     campaign_name: str
@@ -43,6 +51,7 @@ class GameView:
     party: list[CharacterView]
     enemies: list[CharacterView]
     combat: CombatView | None
+    scene: SceneView | None = None
 
 
 @dataclass(frozen=True)

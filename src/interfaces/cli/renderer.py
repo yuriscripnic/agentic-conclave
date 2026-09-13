@@ -23,6 +23,18 @@ def render_game_view(console: Console, view: GameView) -> None:
     )
     console.print(_roster_table("Party", view.party))
     console.print(_roster_table("Enemies", view.enemies))
+    if view.scene is not None:
+        scene = view.scene
+        exits_text = ", ".join(
+            f"{direction} -> {destination}" for direction, destination in scene.exits
+        )
+        console.print(
+            f"Scene: [bold]{scene.name}[/bold] — {scene.description}"
+            f"\nExits: {exits_text or 'none'}"
+        )
+        if view.combat is None:
+            console.print("Actions: go <exit>, say <text> — /status /help /quit")
+            return
     if view.combat is None:
         return
     combat = view.combat

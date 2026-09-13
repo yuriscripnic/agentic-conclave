@@ -166,7 +166,8 @@ def main(
                 continue
             if outcome.argument == "/help":
                 console.print(
-                    "Commands: attack <target>, say <text>, /status, /telemetry, /help, /quit"
+                    "Commands: attack <target>, go <exit>, say <text>,"
+                    " /status, /telemetry, /help, /quit"
                 )
             else:
                 console.print(f"Unknown command: {outcome.argument}")
@@ -179,6 +180,20 @@ def main(
             continue
         if outcome.kind == "no_target":
             console.print(f"No such character: {outcome.argument}")
+            continue
+        if outcome.kind == "unknown_exit":
+            console.print(f"No exit that way: {outcome.argument}")
+            continue
+        if outcome.kind == "error":
+            console.print(f"[red]{outcome.error}[/red]")
+            continue
+        if outcome.kind == "travel":
+            if outcome.turn_report is not None:
+                render_report(console, outcome.turn_report, outcome.turn_report.view)
+            if outcome.error is not None:
+                console.print(f"[red]{outcome.error}[/red]")
+            if outcome.gm_result is not None:
+                render_gm_result(console, outcome.gm_result, view)
             continue
         if outcome.kind == "attack":
             if outcome.error is not None:

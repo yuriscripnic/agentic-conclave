@@ -47,3 +47,10 @@ class SubmitActionCommand:
     action_type: str
     target_id: CharacterId | None = None
     weapon_id: str | None = None
+
+
+@dataclass(frozen=True)
+class TravelCommand:
+    game_id: GameId
+    actor_id: CharacterId
+    direction: str

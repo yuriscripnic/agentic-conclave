@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from application.agents.agent_turn_service import AgentTurnReport
-from application.commands import SubmitActionCommand
+from application.commands import SubmitActionCommand, TravelCommand
 from application.gm.director import GmResult
 from application.telemetry import new_correlation_id
 from application.views import GameView, TurnReport
@@ -28,7 +28,10 @@ class PendingTurn:
 class InputOutcome:
     """The effect of one human input line, for the caller to render."""
 
-    kind: str  # "empty"|"command"|"unknown"|"attack"|"say"|"no_target"|"error"
+    # "empty"|"command"|"unknown"|"attack"|"say"|"travel"|"no_target"
+    # | "unknown_exit"|"error"
+    kind: str
+    kind: str
     argument: str = ""
     turn_report: TurnReport | None = None
     gm_result: GmResult | None = None
@@ -47,6 +50,8 @@ def parse_input(raw: str) -> tuple[str, str]:
         return ("attack", parts[1].strip())
     if parts[0].lower() == "say" and len(parts) == 2:
         return ("say", parts[1].strip())
+    if parts[0].lower() == "go" and len(parts) == 2:
+        return ("travel", parts[1].strip())
     return ("unknown", stripped)
 
 
@@ -55,6 +60,13 @@ def _resolve_target(view: GameView, token: str) -> str | None:
         if member.id == token or member.name.lower() == token.lower():
             return member.id
     return None
+
+
+def _traveler_id(session: GameSession) -> str | None:
+    """The living party member whose move the human controls (first by roster)."""
+    view = session.game_service.get_view(session.game_id)
+    living = [member for member in view.party if not member.is_defeated]
+    return living[0].id if living else None
 
 
 def _is_enemy(view: GameView, character_id: str) -> bool:
@@ -124,6 +136,30 @@ def apply_input(session: GameSession, raw: str) -> InputOutcome:
             session.game_id, argument, correlation_id=new_correlation_id()
         )
         return InputOutcome(kind="say", argument=argument, gm_result=gm_result)
+    if kind == "travel":
+        actor_id = (
+            _traveler_id(session)
+        )
+        if actor_id is None:
+            return InputOutcome(kind="error", argument=argument,
+                                error="no living party member to move")
+        try:
+            report = session.game_service.travel(
+                TravelCommand(
+                    game_id=session.game_id,
+                    actor_id=CharacterId(actor_id),
+                    direction=argument,
+                )
+            )
+        except DomainError as error:
+            return InputOutcome(kind="error", argument=argument, error=str(error))
+        if not report.accepted:
+            return InputOutcome(kind="unknown_exit", argument=argument,
+                                turn_report=report)
+        gm_result = _gm_react(session, report, correlation_id=new_correlation_id())
+        return InputOutcome(
+            kind="travel", argument=argument, turn_report=report, gm_result=gm_result
+        )
     target_id = _resolve_target(view, argument)
     if target_id is None:
         return InputOutcome(kind="no_target", argument=argument)

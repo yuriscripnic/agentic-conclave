@@ -34,6 +34,9 @@ class Location:
 class WorldMap:
     locations: dict[LocationId, Location]
     start_id: LocationId
+    # Optional " where the encounter enemies wait" marker from config; the
+    # application layer uses it to place monsters at session build time.
+    enemies_at: LocationId | None = None
 
     def get(self, location_id: LocationId) -> Location:
         return self.locations[location_id]

@@ -71,6 +71,8 @@ def load_world_catalog(path: Path) -> WorldMap:
     if start not in ids:
         raise InvalidWorldConfigError(f"[world].start '{start}' is not a location id")
     enemies_at = world.get("enemies_at")
-    if enemies_at is not None and (not isinstance(enemies_at, str) or enemies_at not in ids):
-        raise InvalidWorldConfigError(f"[world].enemies_at '{enemies_at}' is not a location id")
-    return WorldMap(locations=locations, start_id=ids[start])
+    return WorldMap(
+        locations=locations,
+        start_id=ids[start],
+        enemies_at=ids[enemies_at] if isinstance(enemies_at, str) else None,
+    )

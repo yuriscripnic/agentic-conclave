@@ -4,8 +4,7 @@ from domain.character.abilities import AbilityScores
 from domain.character.character import Character, CharacterClass, CharacterType
 from domain.character.vitals import HitPoints
 from domain.common.errors import CharacterNotFoundError, ValidationError
-from domain.common.ids import CampaignId, CharacterId, GameId
-from domain.common.ids import LocationId
+from domain.common.ids import CampaignId, CharacterId, GameId, LocationId
 from domain.world.game import Game, GameStatus
 
 

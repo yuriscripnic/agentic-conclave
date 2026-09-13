@@ -1,6 +1,8 @@
 # tests/session/test_factory.py
 """Session composition-root tests (spec §4.1): wiring, opening, postgres."""
 
+from pathlib import Path
+
 import pytest
 
 from session import SessionConfig, build_session, open_session
@@ -106,3 +108,15 @@ def test_agent_llm_openrouter_uses_real_embedding_gateway(monkeypatch) -> None:
     from infrastructure.llm.openrouter.adapter import OpenRouterModelGateway
 
     assert isinstance(memory._gateway, OpenRouterModelGateway)
+
+def test_build_session_with_world_places_both_sides_and_does_not_start_combat() -> None:
+    session = build_session(SessionConfig(seed=42, world_path=Path("world.toml")))
+
+    view = session.game_service.get_view(session.game_id)
+    assert view.scene is not None
+    assert view.scene.name == "Ruined Courtyard"
+    assert view.combat is None
+    assert view.status == "created"
+    # enemy placed at the tower
+    enemies_hp = [member for member in view.enemies]
+    assert enemies_hp  # enemy exists but no combat until arrival

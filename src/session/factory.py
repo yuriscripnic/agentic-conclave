@@ -34,7 +34,9 @@ from application.telemetry import (
     TelemetrySink,
     new_correlation_id,
 )
+from application.world_catalog import load_world_catalog
 from domain.common.ids import GameId
+from domain.world.locations import WorldMap
 from infrastructure.events.in_memory import InMemoryEventRepository
 from infrastructure.llm import create_embedding_gateway, create_gateway
 from infrastructure.memory.in_memory import InMemoryMemoryRepository
@@ -61,6 +63,7 @@ class SessionConfig:
     db: str = "memory"  # "memory" | "postgres" (DATABASE_URL from the environment)
     agent_mode: str | None = None  # None ("off") | "fake" | "llm"
     gm_mode: str = "off"  # "off" | "fake" | "llm"
+    world_path: Path | None = None  # config/world.toml when Path matters (Phase 21)
     gateway: ModelGateway | None = None  # overrides the built gateway in every mode
     provider: str | None = None  # provider override for llm modes
 
@@ -79,11 +82,15 @@ class GameSession:
     opening: GmResult | None = None
 
 
-def build_service(db: str = "memory") -> GameService:
+def build_service(
+    db: str = "memory", *, world: WorldMap | None = None
+) -> GameService:
     """Wire the application layer onto a persistence backend (spec §8)."""
     if db == "memory":
         event_store = InMemoryEventRepository()
-        return GameService(InMemoryGameRepository(event_store), event_store)
+        return GameService(
+            InMemoryGameRepository(event_store), event_store, world=world
+        )
     if db == "postgres":
         database_url = os.environ.get("DATABASE_URL")
         if not database_url:
@@ -96,6 +103,7 @@ def build_service(db: str = "memory") -> GameService:
         return GameService(
             PostgresGameRepository(connection),
             PostgresEventRepository(connection),
+            world=world,
         )
     raise ValueError(f"unknown database backend: {db!r}")
 
@@ -309,7 +317,12 @@ def build_session(config: SessionConfig) -> GameSession:
             sinks.append(PostgresTelemetrySink(connect(database_url)))
     telemetry: TelemetrySink = CompositeTelemetrySink(sinks)
 
-    service = build_service(config.db)
+    world: WorldMap | None = None
+    world_start: Path | None = config.world_path
+    if world_start is not None:
+        path = world_start if world_start.is_absolute() else CONFIG_DIR / world_start
+        world = load_world_catalog(path)
+    service = build_service(config.db, world=world)
     game_id = service.create_game(CreateGameCommand(seed=config.seed))
     service.add_character(game_id, _fighter("Arin"))
 
@@ -327,7 +340,17 @@ def build_session(config: SessionConfig) -> GameSession:
 
     for enemy_command in load_encounter(CONFIG_DIR / "encounter.toml"):
         service.add_character(game_id, enemy_command)
-    service.start_combat(game_id)
+    if world is None:
+        service.start_combat(game_id)
+    else:
+        # Phase 21: place both sides; combat opens deterministically when a
+        # party member arrives among enemies (TravelService chain).
+        game = service._game(game_id)
+        for cid in game.party_ids:
+            game.place(cid, world.start_id)
+        if world.enemies_at is not None:
+            for cid in game.enemy_ids:
+                game.place(cid, world.enemies_at)
     return GameSession(
         game_service=service,
         game_id=game_id,
