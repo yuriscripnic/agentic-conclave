@@ -75,6 +75,12 @@ class GmResponse(BaseModel):
     addressed_to: str | None
 
 
+class SessionResponse(BaseModel):
+    game_id: str
+    view: GameViewResponse
+    opening: GmResponse | None
+
+
 def game_view_response(view: GameView) -> GameViewResponse:
     return GameViewResponse.model_validate(view, from_attributes=True)
 
