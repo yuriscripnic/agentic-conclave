@@ -1,53 +1,57 @@
 # Model profiles for the Agentic Conclave model gateway (Plan 3).
-# No secrets here: the OpenRouter key comes from the OPENROUTER_API_KEY env var.
+# No secrets here: the OpenCode Go key comes from the OPENCODE_API_KEY env var.
 # Until the final version, ALL chat profiles use the cheap model (user directive,
 # 2026-09-04); upgrading a profile is a one-line config edit.
-# Carve-out (explicit user decision 2026-09-06): [profiles.embedding] uses
-# openai/text-embedding-3-small via OpenRouter's embeddings endpoint — glm-5.3-flash
-# is a chat model and cannot produce embeddings. The deterministic embedder covers
-# offline runs, so no key is required unless --agent llm is used.
+# Provider switch (user decision 2026-09-13): chat models are served through
+# OpenCode Go (https://opencode.ai/zen/go/v1) instead of OpenRouter.
+# Carve-out (explicit user decision 2026-09-06): [profiles.embedding] still uses
+# openai/text-embedding-3-small via OpenRouter's embeddings endpoint, because
+# OpenCode Go exposes no /embeddings endpoint. When the chat provider is
+# opencode-go the session factory falls back to the deterministic embedder
+# (user decision 2026-09-13), so no key is required unless --agent llm runs
+# with the chat provider set to openrouter.
 
-default_provider = "openrouter"
+default_provider = "opencode-go"
 
 [profiles.gm]
-provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+provider = "opencode-go"
+model = "glm-5.3-flash"
 temperature = 0.8
 max_tokens = 1024
 
 [profiles.player]
-provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+provider = "opencode-go"
+model = "glm-5.3-flash"
 temperature = 0.7
 max_tokens = 1024
 
 [profiles.cheap]
-provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+provider = "opencode-go"
+model = "glm-5.3-flash"
 temperature = 0.5
 max_tokens = 512
 
 [profiles.reasoning]
-provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+provider = "opencode-go"
+model = "glm-5.3-flash"
 temperature = 0.3
 
 [profiles.creative]
-provider = "openrouter"
-model = "z-ai/glm-5.3-flash"
+provider = "opencode-go"
+model = "glm-5.3-flash"
 temperature = 1.0
 
 [profiles.embedding]  # Plan 6 agent-memory embeddings (OpenAI-compatible /embeddings)
 provider = "openrouter"
 model = "openai/text-embedding-3-small"
 
-[pricing."z-ai/glm-5.3-flash"]  # verified 2026-09-04; USD per million tokens
-input_per_million_usd = 0.07125
-output_per_million_usd = 0.2375
+[pricing."glm-5.3-flash"]  # OpenCode Go pricing, verified 2026-09-13; USD per million tokens
+input_per_million_usd = 0.15
+output_per_million_usd = 0.50
 
-[pricing."z-ai/glm-5.2"]  # kept for the future upgrade path
-input_per_million_usd = 0.4875
-output_per_million_usd = 1.56
+[pricing."glm-5.2"]  # OpenCode Go upgrade path, verified 2026-09-13
+input_per_million_usd = 1.40
+output_per_million_usd = 4.40
 
 [pricing."openai/text-embedding-3-small"]  # verified 2026-09-06; USD per million tokens
 input_per_million_usd = 0.02

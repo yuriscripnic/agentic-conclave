@@ -80,7 +80,7 @@ def test_to_request_builds_model_request(tmp_path: Path) -> None:
 def test_shipped_config_has_six_cheap_profiles() -> None:
     config = Path(__file__).parents[3] / "config" / "llm.toml"
     catalog = load_model_profiles(config)
-    assert catalog.default_provider == "openrouter"
+    assert catalog.default_provider == "opencode-go"
     assert set(catalog.profiles) == {
         "gm",
         "player",
@@ -92,10 +92,11 @@ def test_shipped_config_has_six_cheap_profiles() -> None:
     for name, profile in catalog.profiles.items():
         if name == "embedding":
             continue  # the one sanctioned carve-out (Plan 6, user decision 2026-09-06)
-        assert profile.model == "z-ai/glm-5.3-flash"
+        assert profile.provider == "opencode-go"
+        assert profile.model == "glm-5.3-flash"
     assert set(catalog.pricing) == {
-        "z-ai/glm-5.3-flash",
-        "z-ai/glm-5.2",
+        "glm-5.3-flash",
+        "glm-5.2",
         "openai/text-embedding-3-small",
     }
 
