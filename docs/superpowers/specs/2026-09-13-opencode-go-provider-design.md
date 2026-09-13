@@ -77,7 +77,7 @@ OpenCode Go is an OpenAI-compatible subscription gateway:
 
 ```text
 infrastructure/llm/
-├── __init__.py                  # _PROVIDERS: {"openrouter": …, "opencodego": OpenCodeGoModelGateway}
+├── __init__.py                  # _PROVIDERS: {"openrouter": …, "opencode-go": OpenCodeGoModelGateway}
 ├── openrouter/adapter.py        # generalized base (provider name, base URL, headers)
 └── opencodego/adapter.py        # OpenCodeGoModelGateway(OpenRouterModelGateway)
 ```
