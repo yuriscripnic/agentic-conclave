@@ -2,7 +2,7 @@
 from fastapi.testclient import TestClient
 
 from interfaces.api.app import create_app
-from interfaces.web.mount import mount_web
+from interfaces.web.mount import STATIC_DIR, mount_web
 
 
 def _client() -> TestClient:
@@ -32,3 +32,28 @@ def test_api_routes_still_reachable_after_mount() -> None:
     response = _client().get("/api/v1/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_index_html_contains_new_game_form() -> None:
+    response = _client().get("/")
+    assert response.status_code == 200
+    assert 'id="new-game-form"' in response.text
+    assert 'id="campaign-name"' in response.text
+    assert 'id="seed"' in response.text
+    assert 'id="create-game"' in response.text
+    assert 'id="lobby-error"' in response.text
+
+
+def test_app_js_wires_create_game_request() -> None:
+    response = _client().get("/assets/app.js")
+    assert response.status_code == 200
+    assert "crypto.randomUUID" in response.text
+    assert '"POST /api/v1/games"' in response.text
+    assert "Idempotency-Key" in response.text
+
+
+def test_static_files_exist_and_are_non_empty() -> None:
+    for name in ("index.html", "game.html", "app.js", "styles.css"):
+        path = STATIC_DIR / name
+        assert path.is_file(), f"missing static file: {name}"
+        assert path.stat().st_size > 0, f"empty static file: {name}"
