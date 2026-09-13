@@ -120,3 +120,11 @@ therefore runs **single-process** (uvicorn, `workers=1`) and keeps a
 `SessionRegistry` mapping `game_id → GameSession` in that process; a per-game
 `threading.Lock` serializes state-changing requests within it. Extraction to a
 stateless/clustered model is a future decision, not part of this contract.
+
+## Phase 20: web UI consumes this contract as-is
+
+The browser UI (Phase 20) is a static shell served by
+`interfaces/web/mount.py` that calls this contract as-is: the read-only `GET`
+routes plus `POST /games/{game_id}/actions` and `POST /games/{game_id}/input`
+from the browser. Phase 20 adds no API endpoints and changes none; its routes
+(`/`, `/games/{game_id}`, `/assets/*`) are UI-only and separate from `/api/v1`.

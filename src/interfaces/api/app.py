@@ -33,6 +33,7 @@ from interfaces.api.dto import (
 )
 from interfaces.api.errors import register_error_handlers
 from interfaces.api.store import IdempotencyStore, SessionRegistry
+from interfaces.web.mount import mount_web
 from session.factory import GameSession, SessionConfig
 from session.play import advance, apply_input
 
@@ -175,4 +176,5 @@ def create_app(*, agent_mode: str = "llm", gm_mode: str = "off") -> FastAPI:
         return _idempotent(http_request, f"games/{game_id}/input", 200, build)
 
     register_error_handlers(app)
+    mount_web(app)
     return app
