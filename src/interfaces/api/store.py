@@ -5,7 +5,7 @@ the registry follows that model (contract §6).
 """
 import threading
 
-from session.factory import GameSession, SessionConfig, build_session
+from session.factory import GameSession, SessionConfig, open_session
 
 
 class SessionRegistry:
@@ -19,7 +19,7 @@ class SessionRegistry:
         self._global_lock = threading.Lock()
 
     def build(self, config: SessionConfig) -> str:
-        session = build_session(config)
+        session = open_session(config)
         game_id = str(session.game_id)
         with self._global_lock:
             self._sessions[game_id] = session
