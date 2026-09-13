@@ -1,6 +1,7 @@
 """Session registry + idempotency store tests."""
 import pytest
 
+from domain.common.errors import GameNotFoundError
 from interfaces.api.store import IdempotencyStore, SessionRegistry
 from session.factory import SessionConfig
 
@@ -18,7 +19,7 @@ def test_build_creates_started_session() -> None:
 def test_get_unknown_game_raises() -> None:
     registry = SessionRegistry(agent_mode="fake", gm_mode="fake")
 
-    with pytest.raises(KeyError):
+    with pytest.raises(GameNotFoundError):
         registry.get("nope")
 
 

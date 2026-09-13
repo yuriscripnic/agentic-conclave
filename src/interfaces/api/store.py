@@ -5,6 +5,7 @@ the registry follows that model (contract §6).
 """
 import threading
 
+from domain.common.errors import GameNotFoundError
 from session.factory import GameSession, SessionConfig, open_session
 
 
@@ -30,7 +31,7 @@ class SessionRegistry:
         try:
             return self._sessions[game_id]
         except KeyError:
-            raise KeyError(game_id) from None
+            raise GameNotFoundError(f"no game with id '{game_id}'") from None
 
     def __contains__(self, game_id: object) -> bool:
         return game_id in self._sessions
