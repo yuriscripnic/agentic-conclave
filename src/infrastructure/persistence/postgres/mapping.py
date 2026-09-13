@@ -20,7 +20,7 @@ from domain.character.inventory import Inventory, Item
 from domain.character.vitals import HitPoints
 from domain.character.weapon import Weapon
 from domain.common.errors import ValidationError
-from domain.common.ids import CampaignId, CharacterId, EventId, GameId
+from domain.common.ids import CampaignId, CharacterId, EventId, GameId, LocationId
 from domain.events.collector import EventEnvelope
 from domain.world.game import Game, GameStatus
 
@@ -138,6 +138,10 @@ def game_to_row(game: Game) -> dict[str, object]:
             "party_ids": [str(character_id) for character_id in game.party_ids],
             "enemy_ids": [str(character_id) for character_id in game.enemy_ids],
             "status": game.status.value,
+            "placements": {
+                str(character_id): str(location_id)
+                for character_id, location_id in game.placements.items()
+            },
         },
     }
 
@@ -295,9 +299,25 @@ def _game_from_row(row: Mapping[str, object]) -> Game:
             for value in _require_list(_require(state, "enemy_ids"), "game.enemy_ids")
         ],
         status=status,
+        placements=_placements_from(state),
     )
     game.version = _as_int(_require(row, "version"), "game.version")
     return game
+
+
+def _placements_from(document: Mapping[str, object]) -> dict[CharacterId, LocationId]:
+    """Optional key: older rows (pre-placements) deserialize to {}."""
+    raw = document.get("placements")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValidationError("corrupt persisted state: game.state.placements")
+    return {
+        CharacterId(
+            _as_id(key, "game.state.placements key")
+        ): LocationId(_as_id(value, "game.state.placements value"))
+        for key, value in raw.items()
+    }
 
 
 def event_to_row(game_id: GameId, envelope: EventEnvelope) -> dict[str, object]:

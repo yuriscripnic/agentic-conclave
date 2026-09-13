@@ -5,6 +5,7 @@ from domain.character.character import Character, CharacterClass, CharacterType
 from domain.character.vitals import HitPoints
 from domain.common.errors import CharacterNotFoundError, ValidationError
 from domain.common.ids import CampaignId, CharacterId, GameId
+from domain.common.ids import LocationId
 from domain.world.game import Game, GameStatus
 
 
@@ -132,3 +133,37 @@ def test_game_version_defaults_to_zero_and_is_persistence_metadata() -> None:
     # Persistence metadata: stamped by the repository, never read by rules.
     game.version = 3
     assert game.version == 3
+
+
+def test_placements_place_and_residents() -> None:
+    game = _game()
+    first = _member("Arin", CharacterType.PLAYER_CHARACTER)
+    second = _member("Brix", CharacterType.PLAYER_CHARACTER)
+    game.add_party_member(first)
+    game.add_party_member(second)
+    location = LocationId.generate()
+
+    game.place(first.id, location)
+
+    assert game.location_of(first.id) == location
+    assert game.location_of(second.id) is None
+    assert game.residents_of(location) == [first.id]
+
+
+def test_place_unknown_character_is_rejected() -> None:
+    game = _game()
+    with pytest.raises(CharacterNotFoundError):
+        game.place(CharacterId.generate(), LocationId.generate())
+
+
+def test_residents_only_count_living_combatants() -> None:
+    game = _game()
+    fighter = _member("Arin", CharacterType.PLAYER_CHARACTER)
+    goblin = _member("Goblin", CharacterType.MONSTER, hp=1)
+    game.add_party_member(fighter)
+    game.add_enemy(goblin)
+    location = LocationId.generate()
+    game.place(fighter.id, location)
+    game.place(goblin.id, location)
+    goblin.apply_damage(1)
+    assert game.residents_of(location) == [fighter.id]

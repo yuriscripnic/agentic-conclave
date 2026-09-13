@@ -7,7 +7,7 @@ from enum import StrEnum
 
 from domain.character.character import Character
 from domain.common.errors import CharacterNotFoundError, ValidationError
-from domain.common.ids import CampaignId, CharacterId, GameId
+from domain.common.ids import CampaignId, CharacterId, GameId, LocationId
 
 
 class GameStatus(StrEnum):
@@ -26,6 +26,9 @@ class Game:
     party_ids: list[CharacterId] = field(default_factory=list)
     enemy_ids: list[CharacterId] = field(default_factory=list)
     status: GameStatus = GameStatus.CREATED
+    # Per-character world placement. Empty until a world catalog is supplied;
+    # a missing entry means "no placement" (legacy single-scene games).
+    placements: dict[CharacterId, LocationId] = field(default_factory=dict)
     # Persistence metadata: stamped (+1) by the repository after each committed
     # save; the optimistic-lock token for atomic writes. Domain rules never read it.
     version: int = 0
@@ -95,3 +98,19 @@ class Game:
 
     def mark_ended(self) -> None:
         self.status = GameStatus.ENDED
+
+    def place(self, character_id: CharacterId, location_id: LocationId) -> None:
+        self.get_character(character_id)
+        self.placements[character_id] = location_id
+
+    def location_of(self, character_id: CharacterId) -> LocationId | None:
+        return self.placements.get(character_id)
+
+    def residents_of(self, location_id: LocationId) -> list[CharacterId]:
+        return [
+            cid
+            for cid in (*self.party_ids, *self.enemy_ids)
+            if cid in self.characters
+            and not self.characters[cid].is_defeated()
+            and self.placements.get(cid) == location_id
+        ]
