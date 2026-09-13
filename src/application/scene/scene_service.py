@@ -185,7 +185,7 @@ class SceneService:
                 user=self._scene_user_prompt(view, actor_id),
                 schema=SCENE_DECISION_SCHEMA,
             )
-        except Exception:  # ModelError/AgentRuntimeError → idle, never gates the game
+        except Exception:  # ModelError → idle; never gates the game
             return None
         try:
             return map_scene_decision(response.data)
