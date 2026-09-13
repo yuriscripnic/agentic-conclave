@@ -343,31 +343,27 @@ function startPolling(gameId, errorEl) {
 
 // One immediate poll refresh after any successful POST, so the drawer's
 // effect appears instantly instead of waiting for the 2.5 s tick. If a POST
-// lands while a poll is in flight, the refresh is marked pending; both
-// finally blocks that release the in-flight guard (the poll tick's and
+// lands while a poll/refresh is in flight, the refresh is marked pending;
+// both finally blocks that release the in-flight guard (the poll tick's and
 // refreshOnce's own) consume the flag immediately, so every successful POST
-// is guaranteed exactly one refresh, never skipped. `refreshPendingReentry`
-// prevents the recursive refreshOnce call from setting the flag again —
-// otherwise the finally block would loop forever.
+// is guaranteed exactly one refresh, never skipped. When refreshOnce's
+// finally consumes a pending flag it recurses once, carefully after
+// resetting the guard and clearing the flag first, so the recursion cannot
+// loop: the recursive call finds the guard free and `refreshPending` false.
 let refreshPending = false;
-let refreshPendingReentry = false;
 
 async function refreshOnce(gameId, errorEl) {
   if (pollInFlight) {
-    if (!refreshPendingReentry) {
-      refreshPending = true;
-    }
+    refreshPending = true;
     return;
   }
   pollInFlight = true;
-  refreshPendingReentry = true;
   try {
     await pollOnce(gameId, errorEl);
   } catch (error) {
     showError(errorEl, error);
   } finally {
     pollInFlight = false;
-    refreshPendingReentry = false;
     if (refreshPending) {
       refreshPending = false;
       await refreshOnce(gameId, errorEl); // guard is free now; runs immediately

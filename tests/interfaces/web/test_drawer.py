@@ -81,8 +81,12 @@ def test_immediate_refresh_after_each_successful_post() -> None:
     assert js.count("await refreshOnce(currentGameId, errorEl)") == 2
     # The refresh reuses the same in-flight guard as the poller, and a POST
     # issued while a poll is in flight still gets exactly one refresh later.
+    # The former `refreshPendingReentry` flag has been removed: the deferred
+    # refresh is set unconditionally on guard-miss, and the recursion
+    # terminates because the flag is cleared before the single recursive call.
     assert "if (pollInFlight) {" in js
     assert "refreshPending = true;" in js
+    assert "refreshPendingReentry" not in js
     # Both finally blocks that release the in-flight guard consume the flag:
     # the polling tick's and refreshOnce's own. (The `let` declaration is
     # excluded by anchoring to the consumption statements.)
