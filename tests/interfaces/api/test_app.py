@@ -103,3 +103,47 @@ def test_get_events(game_id: str, client: TestClient) -> None:
     types = [event["event_type"] for event in response.json()["events"]]
     assert "combat_started" in types
     assert "attack_requested" not in types  # nothing has happened yet
+
+
+def test_attack_action_via_actions_route(game_id: str, client: TestClient) -> None:
+    enemy_name = _view(client, game_id)["enemies"][0]["name"]
+
+    response = client.post(
+        f"/api/v1/games/{game_id}/actions",
+        json={"action_type": "attack", "target": enemy_name},
+        headers=_idem(f"atk-{game_id}"),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["accepted"] is True
+    assert body["error_code"] == ""
+    assert body["events"]
+    assert body["view"]["party"]
+
+
+def test_action_idempotent_replay_returns_first_report(game_id: str, client: TestClient) -> None:
+    enemy_name = _view(client, game_id)["enemies"][0]["name"]
+
+    first = client.post(
+        f"/api/v1/games/{game_id}/actions",
+        json={"action_type": "attack", "target": enemy_name},
+        headers=_idem("atk-repeat"),
+    )
+    second = client.post(
+        f"/api/v1/games/{game_id}/actions",
+        json={"action_type": "attack", "target": enemy_name},
+        headers=_idem("atk-repeat"),
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert second.json() == first.json()
+
+
+def test_action_on_unknown_target_maps_to_404(game_id: str, client: TestClient) -> None:
+    response = client.post(
+        f"/api/v1/games/{game_id}/actions", json={"action_type": "attack", "target": "Nobody"}
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"] == "character_not_found"
