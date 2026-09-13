@@ -323,6 +323,14 @@ function startPolling(gameId, errorEl) {
       showError(errorEl, error);
     } finally {
       pollInFlight = false;
+      // A POST that landed while this poll was in flight marked its refresh
+      // pending; consume it here (tick and refreshOnce are the only two
+      // finally blocks that own the in-flight guard), so every successful
+      // POST still gets exactly one refresh even when it collides with a poll.
+      if (refreshPending) {
+        refreshPending = false;
+        void refreshOnce(gameId, errorEl); // the guard is free; runs immediately
+      }
     }
   };
   tick();
@@ -334,24 +342,32 @@ function startPolling(gameId, errorEl) {
 // latest polled GameView; resolution stays server-side (resolve_target).
 
 // One immediate poll refresh after any successful POST, so the drawer's
-// effect appears instantly instead of waiting for the 2.5 s tick. Client-side
-// only. If a regular poll currently holds the in-flight guard, the refresh is
-// marked pending and deferred — every successful POST is guaranteed exactly
-// one refresh, never skipped.
+// effect appears instantly instead of waiting for the 2.5 s tick. If a POST
+// lands while a poll is in flight, the refresh is marked pending; both
+// finally blocks that release the in-flight guard (the poll tick's and
+// refreshOnce's own) consume the flag immediately, so every successful POST
+// is guaranteed exactly one refresh, never skipped. `refreshPendingReentry`
+// prevents the recursive refreshOnce call from setting the flag again —
+// otherwise the finally block would loop forever.
 let refreshPending = false;
+let refreshPendingReentry = false;
 
 async function refreshOnce(gameId, errorEl) {
   if (pollInFlight) {
-    refreshPending = true;
+    if (!refreshPendingReentry) {
+      refreshPending = true;
+    }
     return;
   }
   pollInFlight = true;
+  refreshPendingReentry = true;
   try {
     await pollOnce(gameId, errorEl);
   } catch (error) {
     showError(errorEl, error);
   } finally {
     pollInFlight = false;
+    refreshPendingReentry = false;
     if (refreshPending) {
       refreshPending = false;
       await refreshOnce(gameId, errorEl); // guard is free now; runs immediately
@@ -397,7 +413,11 @@ function populateTargetSelect(view) {
   select.replaceChildren();
   // A targetless attack is plausible server-side (resolve_target only runs
   // when action.target is given), so an explicit "no target" option exists.
-  select.appendChild(buildElement("option", null, "No target"));
+  const noTarget = buildElement("option", null, "No target");
+  // Explicit empty value: without it the option value defaults to its text
+  // content and the `targetSelect.value !== ""` guard below never fires.
+  noTarget.value = "";
+  select.appendChild(noTarget);
   const members = (view && view.party ? view.party : []).concat(view && view.enemies ? view.enemies : []);
   for (const member of members) {
     if (!member || !member.id) continue;
