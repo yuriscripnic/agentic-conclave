@@ -66,3 +66,43 @@ def test_build_session_postgres_round_trip(postgres_url, monkeypatch) -> None:
 def test_build_session_rejects_unknown_backend() -> None:
     with pytest.raises(ValueError, match="unknown database backend"):
         build_session(SessionConfig(db="oracle"))
+
+
+def test_agent_llm_requires_opencode_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="OPENCODE_API_KEY"):
+        build_session(SessionConfig(seed=42, agent_mode="llm"))
+
+
+def test_gm_llm_requires_opencode_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="OPENCODE_API_KEY"):
+        build_session(SessionConfig(seed=42, gm_mode="llm"))
+
+
+def test_agent_llm_opencodego_uses_deterministic_embedder(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCODE_API_KEY", "test-key")
+    session = build_session(SessionConfig(seed=42, agent_mode="llm"))
+    turn_service = session.turn_service
+    assert turn_service is not None
+    memory = turn_service._memory  # composition-root wiring detail; acceptable in tests
+    from ai.memory.fake import DeterministicEmbeddingGateway
+
+    assert isinstance(memory._gateway, DeterministicEmbeddingGateway)
+
+
+def test_agent_llm_openrouter_uses_real_embedding_gateway(monkeypatch) -> None:
+    monkeypatch.setenv("OPENCODE_API_KEY", "test-key")  # chat key unused in this path
+    monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
+    session = build_session(
+        SessionConfig(seed=42, agent_mode="llm", provider="openrouter")
+    )
+    turn_service = session.turn_service
+    assert turn_service is not None
+    memory = turn_service._memory
+    from infrastructure.llm.openrouter.adapter import OpenRouterModelGateway
+
+    assert isinstance(memory._gateway, OpenRouterModelGateway)

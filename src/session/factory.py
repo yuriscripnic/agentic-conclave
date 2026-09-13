@@ -115,6 +115,26 @@ def _memory_repository(db: str) -> MemoryRepository:
     raise ValueError(f"unknown database backend: {db!r}")
 
 
+PROVIDER_API_KEY_ENV = {
+    "opencode-go": "OPENCODE_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _resolve_api_key(provider: str, purpose: str) -> str:
+    """Map a provider name to its env-var key; fail with the variable's name."""
+    env_var = PROVIDER_API_KEY_ENV.get(provider)
+    if env_var is None:
+        raise ValueError(
+            f"unknown provider {provider!r}; known providers: "
+            f"{', '.join(sorted(PROVIDER_API_KEY_ENV))}"
+        )
+    api_key = os.environ.get(env_var)
+    if not api_key:
+        raise ValueError(f"{env_var} is not set; export it to run with {purpose}")
+    return api_key
+
+
 def _gm_decision(prompt: str) -> dict[str, str]:
     """Deterministic GM responses for fake mode, keyed off the task marker (§3.7)."""
     if "Task: respond_to_player" in prompt:
@@ -180,13 +200,9 @@ def _wire_gm(
         if config.gateway is not None:
             gateway = config.gateway
         else:
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            if not api_key:
-                raise ValueError(
-                    "OPENROUTER_API_KEY is not set; export it to run with --gm llm"
-                )
+            provider = config.provider or model_catalog.default_provider
             gateway = create_gateway(
-                config.provider or model_catalog.default_provider, api_key=api_key
+                provider, api_key=_resolve_api_key(provider, "--gm llm")
             )
     else:
         gateway = ScriptedGmGateway(_fake_or_injected(config), _gm_decision)
@@ -211,14 +227,9 @@ def _wire_party(
         if config.gateway is not None:
             gateway = config.gateway
         else:
-            api_key = os.environ.get("OPENROUTER_API_KEY")
-            if not api_key:
-                raise ValueError(
-                    "OPENROUTER_API_KEY is not set; export it to run with --agent llm"
-                )
-            gateway = create_gateway(
-                config.provider or model_catalog.default_provider, api_key=api_key
-            )
+            provider = config.provider or model_catalog.default_provider
+            api_key = _resolve_api_key(provider, "--agent llm")
+            gateway = create_gateway(provider, api_key=api_key)
     else:
 
         def _decision() -> dict[str, str]:
@@ -236,7 +247,12 @@ def _wire_party(
         gateway = ScriptedAgentGateway(_fake_or_injected(config), _decision)
     embedding_profile = model_catalog.get("embedding")
     embedder: EmbeddingGateway
-    if api_key is not None:
+    chat_provider = config.provider or model_catalog.default_provider
+    if chat_provider == "opencode-go":
+        # OpenCode Go exposes no /embeddings endpoint (spec 2026-09-13,
+        # Decision 4): memory embeds with the deterministic gateway.
+        embedder = DeterministicEmbeddingGateway()
+    elif api_key is not None:
         embedder = create_embedding_gateway(embedding_profile.provider, api_key=api_key)
     else:
         embedder = DeterministicEmbeddingGateway()
