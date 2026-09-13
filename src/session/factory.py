@@ -17,7 +17,7 @@ from ai.memory.fake import DeterministicEmbeddingGateway
 from ai.memory.ports import EmbeddingGateway, MemoryRepository
 from ai.models.fake import FakeModelGateway
 from ai.models.gateway import ModelGateway
-from ai.models.profiles import load_model_profiles
+from ai.models.profiles import ModelProfileCatalog, load_model_profiles
 from application.agents.agent_turn_service import AgentTurnService
 from application.agents.fake_script import ScriptedAgentGateway, ScriptedGmGateway
 from application.agents.party_board import PartyMessageBoard
@@ -29,6 +29,7 @@ from application.gm.conversation import GmConversation
 from application.gm.director import GmDirector, GmResult
 from application.gm.profiles import load_gm_profile
 from application.memory.memory_service import MemoryService
+from application.scene.scene_service import SceneLoopConfig, SceneService
 from application.telemetry import (
     CompositeTelemetrySink,
     TelemetrySink,
@@ -63,7 +64,7 @@ class SessionConfig:
     db: str = "memory"  # "memory" | "postgres" (DATABASE_URL from the environment)
     agent_mode: str | None = None  # None ("off") | "fake" | "llm"
     gm_mode: str = "off"  # "off" | "fake" | "llm"
-    world_path: Path | None = None  # config/world.toml when Path matters (Phase 21)
+    world_path: Path | str | None = None  # name under config/ or an absolute path (Phase 21)
     gateway: ModelGateway | None = None  # overrides the built gateway in every mode
     provider: str | None = None  # provider override for llm modes
 
@@ -79,6 +80,7 @@ class GameSession:
     party_names: tuple[str, ...]
     turn_service: AgentTurnService | None
     gm_director: GmDirector | None
+    scene_service: SceneService | None = None
     opening: GmResult | None = None
 
 
@@ -226,7 +228,7 @@ def _wire_party(
     config: SessionConfig,
     board: PartyMessageBoard,
     telemetry: TelemetrySink,
-) -> tuple[AgentTurnService, tuple[str, ...]]:
+) -> tuple[AgentTurnService, tuple[str, ...], AgentRuntime, ModelProfileCatalog]:
     """Wire the agent stack and add the AI party members before combat starts."""
     agent_profiles = load_agent_profiles(CONFIG_DIR / "agents.toml")
     model_catalog = load_model_profiles(CONFIG_DIR / "llm.toml")
@@ -304,7 +306,7 @@ def _wire_party(
         agent_service.register(character_id, profile)
         names.append(profile.character_name)
     # No join line here: rendering belongs to the caller, which reads party_names.
-    return agent_service, tuple(names)
+    return agent_service, tuple(names), runtime, model_catalog
 
 
 def build_session(config: SessionConfig) -> GameSession:
@@ -318,7 +320,11 @@ def build_session(config: SessionConfig) -> GameSession:
     telemetry: TelemetrySink = CompositeTelemetrySink(sinks)
 
     world: WorldMap | None = None
-    world_start: Path | None = config.world_path
+    world_start = (
+        config.world_path
+        if isinstance(config.world_path, Path)
+        else (Path(config.world_path) if config.world_path else None)
+    )
     if world_start is not None:
         path = world_start if world_start.is_absolute() else CONFIG_DIR / world_start
         world = load_world_catalog(path)
@@ -329,8 +335,10 @@ def build_session(config: SessionConfig) -> GameSession:
     board = PartyMessageBoard()
     turn_service: AgentTurnService | None = None
     party_names: tuple[str, ...] = ()
+    agent_runtime: AgentRuntime | None = None
+    agent_catalog: ModelProfileCatalog | None = None
     if config.agent_mode is not None:
-        turn_service, party_names = _wire_party(
+        turn_service, party_names, agent_runtime, agent_catalog = _wire_party(
             service, game_id, config, board, telemetry
         )
 
@@ -351,6 +359,18 @@ def build_session(config: SessionConfig) -> GameSession:
         if world.enemies_at is not None:
             for cid in game.enemy_ids:
                 game.place(cid, world.enemies_at)
+    scene_service: SceneService | None = None
+    if world is not None and turn_service is not None:
+        assert agent_runtime is not None and agent_catalog is not None
+        scene_service = SceneService(
+            service,
+            world=world,
+            turn_service=turn_service,
+            gm_director=gm_director,
+            runtime=agent_runtime,
+            model_catalog=agent_catalog,
+            config=_scene_loop_config(),
+        )
     return GameSession(
         game_service=service,
         game_id=game_id,
@@ -359,6 +379,26 @@ def build_session(config: SessionConfig) -> GameSession:
         party_names=party_names,
         turn_service=turn_service,
         gm_director=gm_director,
+        scene_service=scene_service,
+    )
+
+
+def _scene_loop_config() -> SceneLoopConfig:
+    """Loop pacing from config/game.toml (§48); defaults when absent."""
+    path = CONFIG_DIR / "game.toml"
+    try:
+        import tomllib
+
+        loop = tomllib.loads(path.read_text(encoding="utf-8")).get("loop", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        loop = {}
+    if not isinstance(loop, dict):
+        loop = {}
+    tick_seconds = loop.get("tick_seconds", 0.0)
+    max_actions = loop.get("max_agent_scene_actions", 4)
+    return SceneLoopConfig(
+        tick_seconds=float(tick_seconds) if isinstance(tick_seconds, (int, float)) else 0.0,
+        max_agent_scene_actions=max_actions if isinstance(max_actions, int) else 4,
     )
 
 

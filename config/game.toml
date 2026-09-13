@@ -1,0 +1,4 @@
+# Scene-loop pacing (Phase 21; §48 — configuration over hardcoding).
+[loop]
+tick_seconds = 0.0                # CLI sleep between agent scene actions (0 = interactive)
+max_agent_scene_actions = 4       # consecutive rejected scene actions → actor skipped
