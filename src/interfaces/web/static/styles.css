@@ -76,6 +76,115 @@ button:disabled {
   padding-left: 0.75rem;
 }
 
+.roster {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.roster-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.5rem;
+  border: 1px solid #2c3038;
+  border-radius: 0.375rem;
+  background: #23262e;
+}
+
+.roster-row.party {
+  border-left: 3px solid #4f6df5;
+}
+
+.roster-row.enemy {
+  border-left: 3px solid #a33;
+}
+
+.roster-row.defeated {
+  opacity: 0.45;
+  filter: grayscale(0.7);
+}
+
+.member-name {
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.member-class,
+.member-ac {
+  color: #b8bcc6;
+  font-size: 0.85rem;
+}
+
+.hp-bar {
+  display: inline-block;
+  width: 8rem;
+  height: 0.55rem;
+  border-radius: 0.25rem;
+  background: #3a3f4b;
+  overflow: hidden;
+}
+
+.hp-fill {
+  display: block;
+  height: 100%;
+  background: #3fb96a;
+}
+
+.roster-row.defeated .hp-fill {
+  background: #6b7280;
+}
+
+.hp-text {
+  font-size: 0.8rem;
+  color: #b8bcc6;
+}
+
+.condition-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.condition-tag {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid #3a3f4b;
+  font-size: 0.75rem;
+  color: #b8bcc6;
+}
+
+.condition-tag.condition-defeated {
+  border-color: #a33;
+  color: #ff9d9d;
+}
+
+.initiative-order {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.initiative-entry {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #2c3038;
+  border-radius: 0.3rem;
+  background: #23262e;
+}
+
+.initiative-entry.active-actor {
+  border-color: #f5c04f;
+  background: #3a3322;
+  color: #ffd875;
+}
+
 #event-feed {
   list-style: none;
   margin: 0;

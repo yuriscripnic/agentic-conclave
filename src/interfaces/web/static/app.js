@@ -120,27 +120,134 @@ function ingestEvents(gameId, envelopes) {
   }
 }
 
-function render(status) {
-  // Owner of the party/enemies/combat containers. Task 4 fills in the
-  // per-panel rendering; for now the panels stay hidden and status text only.
+// Task 4: panels render from server fields ONLY (GameView contract), never
+// from derived rules math. The only "condition" computed client-side is the
+// is_defeated styling sent by the API.
+
+function buildElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function hpBarPercent(hpCurrent, hpMax) {
+  // Presentation only: width of the bar visual, clamped 0..100.
+  if (!hpMax || hpMax <= 0) return 0;
+  const percent = (hpCurrent / hpMax) * 100;
+  if (!Number.isFinite(percent)) return 0;
+  return Math.min(100, Math.max(0, percent));
+}
+
+function appendConditionTags(row, member) {
+  const tags = buildElement("span", "condition-tags");
+  for (const condition of member.conditions || []) {
+    tags.appendChild(buildElement("span", "condition-tag", condition ?? "-"));
+  }
+  if (member.is_defeated) {
+    tags.appendChild(buildElement("span", "condition-tag condition-defeated", "defeated"));
+  }
+  row.appendChild(tags);
+}
+
+function appendHpBar(row, member) {
+  const hpMax = member.hp_max ?? 0;
+  const hpCurrent = member.hp_current ?? 0;
+  const bar = buildElement("span", "hp-bar");
+  const fill = buildElement("span", "hp-fill");
+  fill.style.width = `${hpBarPercent(hpCurrent, hpMax)}%`;
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  row.appendChild(buildElement("span", "hp-text", `${hpCurrent} / ${hpMax}`));
+}
+
+function rosterRow(member, isParty) {
+  const row = buildElement("li", isParty ? "roster-row party" : "roster-row enemy");
+  if (member.is_defeated) row.classList.add("defeated");
+  row.appendChild(buildElement("span", "member-name", member.name ?? "-"));
+  row.appendChild(
+    buildElement(
+      "span",
+      "member-class",
+      `${member.character_class ?? "-"} · level ${member.level ?? "-"}`,
+    ),
+  );
+  appendHpBar(row, member);
+  row.appendChild(buildElement("span", "member-ac", `AC ${member.armor_class ?? "-"}`));
+  appendConditionTags(row, member);
+  return row;
+}
+
+// Shared roster builder: party roster (emphasis) and enemies (no emphasis).
+function renderParty(container, members, { isParty = true } = {}) {
+  if (!container) return;
+  const list = members || [];
+  if (list.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.replaceChildren(); // idempotent re-render each poll
+  container.appendChild(buildElement("h2", null, isParty ? "Party" : "Enemies"));
+  const rows = buildElement("ul", "roster");
+  for (const member of list) rows.appendChild(rosterRow(member, isParty));
+  container.appendChild(rows);
+}
+
+// Combat tracker: hidden entirely when combat is null (status line stays).
+function renderCombatTracker(view) {
+  const tracker = document.getElementById("combat-tracker");
+  if (!tracker) return;
+  const combat = (view && view.combat) || null;
+  if (!combat) {
+    tracker.hidden = true;
+    tracker.replaceChildren();
+    return;
+  }
+  tracker.hidden = false;
+  tracker.replaceChildren(); // idempotent re-render each poll
+  tracker.appendChild(
+    buildElement("h2", null, `Combat — round ${combat.round_number ?? "-"} (${combat.status ?? "-"})`),
+  );
+  const order = buildElement("ul", "initiative-order");
+  for (const entry of combat.initiative_order || []) {
+    const item = buildElement("li", "initiative-entry");
+    if (combat.active_actor_id && entry.character_id === combat.active_actor_id) {
+      item.classList.add("active-actor");
+    }
+    item.appendChild(buildElement("span", "initiative-name", entry.name ?? "-"));
+    item.appendChild(buildElement("span", "initiative-total", `${entry.total ?? "-"}`));
+    order.appendChild(item);
+  }
+  tracker.appendChild(order);
+}
+
+function render(status, view) {
   const statusLine = document.getElementById("status-line");
   if (!statusLine) return;
-  let text = `Game status: ${status.status}`;
-  if (status.combat) {
-    text += ` — combat round ${status.combat.round_number} (${status.combat.status})`;
+  const combat = (view && view.combat) || null;
+  let text = `Game status: ${(status && status.status) ?? "-"}`;
+  if (combat) {
+    text += ` — combat round ${combat.round_number} (${combat.status})`;
   }
   if (status.game_over) {
     text += " — game over";
   }
   statusLine.textContent = text;
+  renderParty(document.getElementById("party-panel"), view && view.party, { isParty: true });
+  renderParty(document.getElementById("enemies-panel"), view && view.enemies, { isParty: false });
+  renderCombatTracker(view);
 }
 
 async function pollOnce(gameId, errorEl) {
-  const status = await api(`GET /api/v1/games/${gameId}/status`);
+  const [status, view] = await Promise.all([
+    api(`GET /api/v1/games/${gameId}/status`),
+    api(`GET /api/v1/games/${gameId}`),
+  ]);
   if (status.game_over) {
     stopPolling();
   }
-  render(status);
+  render(status, view);
   const feed = await api(`GET /api/v1/games/${gameId}/events`);
   ingestEvents(gameId, feed.events || []);
 }
