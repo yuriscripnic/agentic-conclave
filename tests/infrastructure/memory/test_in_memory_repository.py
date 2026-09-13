@@ -14,6 +14,7 @@ def _record(
     *,
     kind: MemoryKind = MemoryKind.EPISODIC,
     round_number: int | None = 1,
+    location: str | None = None,
 ) -> MemoryRecord:
     return MemoryRecord(
         memory_id=uuid.uuid4().hex,
@@ -23,6 +24,7 @@ def _record(
         text=text,
         round_number=round_number,
         embedding=embedding,
+        location=location,
     )
 
 
@@ -95,3 +97,29 @@ def test_duplicate_key_includes_kind() -> None:
     results = repo.search("g1", "brix", (1.0, 0.0), limit=5)
 
     assert len(results) == 2
+
+
+def test_search_scopes_episodic_to_location_and_keeps_semantic() -> None:
+    repo = InMemoryMemoryRepository()
+    here, elsewhere = "loc-a", "loc-b"
+    repo.append(
+        _record("g1", "brix", "scene-a gossip", (1.0, 0.0), location=here)
+    )
+    repo.append(
+        _record("g1", "brix", "other gossip", (0.0, 1.0), location=elsewhere)
+    )
+    repo.append(_record("g1", "brix", "key fact", (0.0, 1.0), kind=MemoryKind.SEMANTIC))
+
+    results = repo.search("g1", "brix", (0.0, 1.0), limit=5, location=here)
+
+    texts = [record.text for record in results]
+    assert "other gossip" not in texts
+    assert set(texts) == {"scene-a gossip", "key fact"}
+
+
+def test_search_without_location_keeps_everything() -> None:
+    repo = InMemoryMemoryRepository()
+    repo.append(_record("g1", "brix", "a", (1.0, 0.0), location="loc-a"))
+    repo.append(_record("g1", "brix", "b", (1.0, 0.0)))
+
+    assert len(repo.search("g1", "brix", (1.0, 0.0), limit=5)) == 2

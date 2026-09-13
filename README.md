@@ -118,6 +118,30 @@ export OPENCODE_API_KEY=...   # shell only; never commit keys
 - Persona and caps live in `config/gm.toml`; model selection in `config/llm.toml` (`[profiles.gm]`).
 - GM failures never gate the game: a failed call simply prints nothing.
 
+## The World: scenes and travel (Phase 21, CLI-first)
+
+Out of combat the game is a scene loop over a data-driven location graph
+(`config/world.toml`):
+
+- `go <exit>` travels one party member through the named exit; travel only
+  succeeds where an exit exists and combat is not active — the engine decides,
+  never the LLM (`ActionRejected` events record refusals).
+- Arriving where living enemies wait opens combat deterministically.
+- Agents act between human inputs via the scene loop (`config/game.toml
+  [loop]` paces it; with `tick_seconds = 0` one agent action runs per prompt,
+  so the human turn is the pause).
+- NPC talk is scene-scoped: episodic memories are tagged with the location and
+  retrieved for the current scene; semantic facts follow the agent across
+  scenes (`migrations/004_agent_memory_locations.sql`).
+
+```bash
+.venv/bin/python -c "import sys; from interfaces.cli.app import main; sys.exit(main(sys.argv[1:]))" --world world.toml --agent llm --gm llm
+```
+
+- `--gm off|llm|fake` — default `fake` (offline by default, like `--agent`).
+- Persona and caps live in `config/gm.toml`; model selection in `config/llm.toml` (`[profiles.gm]`).
+- GM failures never gate the game: a failed call simply prints nothing.
+
 ## Web API (Phase 19)
 
 A FastAPI adapter over the same application layer the CLI uses — one game loop,

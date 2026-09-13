@@ -1,7 +1,9 @@
 # tests/session/test_play.py
 """advance/apply_input engine tests (spec §4.1): the CLI loop's semantics."""
 
-from session import SessionConfig, advance, apply_input, open_session
+from pathlib import Path
+
+from session import SessionConfig, advance, apply_input, build_session, open_session
 
 
 def _drain(session) -> list:
@@ -94,3 +96,25 @@ def test_apply_input_passthrough_kinds() -> None:
     assert unknown.kind == "unknown"
     assert unknown.argument == "dance"
     assert apply_input(session, "   ").kind == "empty"
+
+def test_go_travels_when_world_configured() -> None:
+    session = build_session(SessionConfig(seed=42, world_path=Path("world.toml")))
+    outcome = apply_input(session, "go north")
+    assert outcome.kind == "travel"
+    assert outcome.turn_report is not None
+    assert outcome.turn_report.view.scene.name == "Eastern Tower"
+    # enemy waits there: combat auto-opened
+    assert outcome.turn_report.view.combat is not None
+
+
+def test_go_unknown_exit_refuses_travel() -> None:
+    session = build_session(SessionConfig(seed=42, world_path=Path("world.toml")))
+    outcome = apply_input(session, "go west")
+    assert outcome.kind == "unknown_exit"
+    assert outcome.turn_report.view.scene.name == "Ruined Courtyard"
+
+
+def test_go_without_world_reports_error() -> None:
+    session = build_session(SessionConfig(seed=42))
+    outcome = apply_input(session, "go north")
+    assert outcome.kind == "error"

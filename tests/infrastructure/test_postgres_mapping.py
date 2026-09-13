@@ -11,7 +11,7 @@ from domain.character.inventory import Inventory
 from domain.character.vitals import HitPoints
 from domain.character.weapon import Weapon
 from domain.common.errors import ValidationError
-from domain.common.ids import CampaignId, CharacterId, EventId, GameId
+from domain.common.ids import CampaignId, CharacterId, EventId, GameId, LocationId
 from domain.events.collector import EventEnvelope
 from domain.world.game import Game, GameStatus
 from infrastructure.persistence.postgres.mapping import (
@@ -168,3 +168,47 @@ def test_event_envelope_roundtrip() -> None:
 
     rebuilt = row_to_event(row, game_id)
     assert rebuilt == envelope
+
+
+def test_game_state_document_carries_placements() -> None:
+    game = Game(
+        game_id=GameId.generate(),
+        campaign_id=CampaignId.generate(),
+        campaign_name="Ruins",
+        seed=1,
+    )
+    fighter = _character("Arin", CharacterType.PLAYER_CHARACTER)
+    game.add_party_member(fighter)
+    location = LocationId.generate()
+    game.place(fighter.id, location)
+
+    row = game_to_row(game)
+    assert row["state"]["placements"] == {str(fighter.id): str(location)}
+
+    rebuilt = game_from_row(
+        {
+            "id": str(game.game_id),
+            "campaign_id": str(game.campaign_id),
+            "campaign_name": game.campaign_name,
+            "seed": game.seed,
+            "version": game.version,
+            "status": game.status.value,
+            "state": row["state"],
+        }
+    )
+    assert rebuilt.placements == {fighter.id: location}
+
+
+def test_game_from_row_defaults_missing_placements() -> None:
+    with pytest.raises(ValidationError):
+        game_from_row(
+            {
+                "id": str(GameId.generate()),
+                "campaign_id": str(CampaignId.generate()),
+                "campaign_name": "Ruins",
+                "seed": 1,
+                "version": 0,
+                "status": "created",
+                "state": {},
+            }
+        )

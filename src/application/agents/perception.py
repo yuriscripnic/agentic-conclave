@@ -27,6 +27,7 @@ class AgentPerception:
     self_view: CharacterView
     opponents: tuple[OpponentBrief, ...]
     initiative_order: tuple[str, ...]
+    location: str | None = None
 
 
 def _find(characters: list[CharacterView], actor_id: str) -> CharacterView | None:

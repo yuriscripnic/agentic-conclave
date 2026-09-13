@@ -1,0 +1,20 @@
+# Location graph for the full-adventure loop (Phase 21, CLI-first).
+# Pure data — the engine owns all travel/arrival rules.
+
+[world]
+start = "courtyard"
+enemies_at = "eastern_tower"
+
+[[locations]]
+id = "courtyard"
+name = "Ruined Courtyard"
+description = "Broken flagstones, a dry well, and a path north to an old watchtower."
+
+[[locations.exits]]
+direction = "north"
+to = "eastern_tower"
+
+[[locations]]
+id = "eastern_tower"
+name = "Eastern Tower"
+description = "A weathered watchtower, its doorway choked with rubble."

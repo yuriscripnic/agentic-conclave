@@ -8,6 +8,7 @@ from application.commands import (
     AddCharacterCommand,
     CreateGameCommand,
     SubmitActionCommand,
+    TravelCommand,
 )
 from application.ports import GameRepository
 from application.views import (
@@ -15,6 +16,7 @@ from application.views import (
     CombatView,
     GameView,
     InitiativeEntryView,
+    SceneView,
     TurnReport,
 )
 from domain.character.abilities import AbilityScores, AbilityType
@@ -31,13 +33,15 @@ from domain.common.errors import (
     InvalidActionError,
     ValidationError,
 )
-from domain.common.ids import CampaignId, CharacterId, GameId
+from domain.common.ids import CampaignId, CharacterId, GameId, LocationId
 from domain.events.collector import EventCollector, EventEnvelope
 from domain.events.events import GameCreated, GameStarted
 from domain.events.repository import EventRepository
 from domain.rules.actions import AttackProposal
 from domain.rules.dice import DiceRoller
 from domain.world.game import Game, GameStatus
+from domain.world.locations import WorldMap
+from domain.world.travel import TravelProposal, TravelService
 
 MAX_ENEMY_CHAIN_TURNS = 200
 
@@ -51,10 +55,15 @@ _CHARACTER_TYPES: dict[str, CharacterType] = {
 
 class GameService:
     def __init__(
-        self, game_repository: GameRepository, event_repository: EventRepository
+        self,
+        game_repository: GameRepository,
+        event_repository: EventRepository,
+        *,
+        world: WorldMap | None = None,
     ) -> None:
         self._games = game_repository
         self._events = event_repository
+        self._world = world
         self._combats: dict[GameId, Combat] = {}
         self._collectors: dict[GameId, EventCollector] = {}
         self._dice: dict[GameId, DiceRoller] = {}
@@ -157,20 +166,31 @@ class GameService:
 
     def start_combat(self, game_id: GameId) -> GameView:
         game = self._game(game_id)
-        if game.status is not GameStatus.CREATED:
-            raise ValidationError("combat can only be started once per game")
+        if game.status not in (GameStatus.CREATED, GameStatus.RUNNING):
+            raise ValidationError(
+                "combat can only be started on a created or running game"
+            )
+        existing = self._combats.get(game_id)
+        if existing is not None and existing.status is CombatStatus.ACTIVE:
+            raise ValidationError("combat is already active for this game")
+        if game.status is GameStatus.CREATED:
+            game.mark_started()
         if not game.party_ids or not game.enemy_ids:
             raise ValidationError(
                 "combat needs at least one party member and one enemy"
             )
-        game.mark_started()
+        self._open_combat(game)
+        self._persist(game)
+        return self.get_view(game_id)
+
+    def _open_combat(self, game: Game) -> None:
+        if game.status is GameStatus.CREATED:
+            game.mark_started()
         collector = self._collector(game)
         collector.record(GameStarted())
         engine = self._engine(game)
         combat = engine.start(game, (*game.party_ids, *game.enemy_ids), collector)
-        self._combats[game_id] = combat
-        self._persist(game)
-        return self.get_view(game_id)
+        self._combats[game.game_id] = combat
 
     def submit_action(self, command: SubmitActionCommand) -> TurnReport:
         game = self._game(command.game_id)
@@ -266,6 +286,61 @@ class GameService:
             game_over=game_over,
         )
 
+    # -- travel / scenes ---------------------------------------------------
+
+    def travel(self, command: TravelCommand) -> TurnReport:
+        if self._world is None:
+            raise InvalidActionError("this game has no world configured")
+        game = self._game(command.game_id)
+        if game.status is GameStatus.ENDED:
+            raise GameNotRunningError("the game has ended; travel is impossible")
+        combat = self._combats.get(command.game_id)
+        combat_active = (
+            combat is not None and combat.status is CombatStatus.ACTIVE
+        )
+        outcome = TravelService(self._world).resolve(
+            game,
+            TravelProposal(actor_id=command.actor_id, direction=command.direction),
+            combat_active=combat_active,
+            collector=self._collector(game),
+        )
+        if not outcome.accepted:
+            events = self._persist(game)
+            return TurnReport(
+                game_id=str(command.game_id),
+                accepted=False,
+                error_code=outcome.reason,
+                reason=outcome.reason,
+                events=events,
+                view=self.get_view(command.game_id),
+                game_over=False,
+            )
+        if outcome.location is None:
+            raise InvalidActionError("travel resolved with no destination")
+        if self._hostiles_at(game, command.actor_id, outcome.location.id):
+            # ONE transaction: arrival + combat opening leave together,
+            # and the arrival stays in this report's event list.
+            self._open_combat(game)
+        events = self._persist(game)
+        return TurnReport(
+            game_id=str(command.game_id),
+            accepted=True,
+            error_code="",
+            reason="",
+            events=events,
+            view=self.get_view(command.game_id),
+            game_over=False,
+        )
+
+    def _hostiles_at(
+        self, game: Game, actor_id: CharacterId, location_id: LocationId
+    ) -> bool:
+        residents = set(game.residents_of(location_id))
+        opponents = set(game.opponents_of(actor_id))
+        return bool(residents & opponents)
+
+    # -- use cases ---------------------------------------------------------
+
     def get_view(self, game_id: GameId) -> GameView:
         game = self._game(game_id)
         combat = self._combats.get(game_id)
@@ -298,6 +373,30 @@ class GameService:
                 self._character_view(game.characters[cid]) for cid in game.enemy_ids
             ],
             combat=combat_view,
+            scene=self._scene_view(game),
+        )
+
+    def _scene_view(self, game: Game) -> SceneView | None:
+        if self._world is None:
+            return None
+        hero = game.living_party_ids[0] if game.living_party_ids else (
+            game.party_ids[0] if game.party_ids else None
+        )
+        if hero is None:
+            return None
+        here = game.location_of(hero) or self._world.start_id
+        location = self._world.get(here)
+        return SceneView(
+            location_id=str(location.id),
+            name=location.name,
+            description=location.description,
+            exits=[
+                (
+                    exit_.direction,
+                    self._world.get(exit_.destination).name,
+                )
+                for exit_ in location.exits
+            ],
         )
 
     def _character_view(self, character: Character) -> CharacterView:

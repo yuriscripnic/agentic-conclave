@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections.abc import Callable
 
 from rich.console import Console
@@ -11,6 +12,7 @@ from rich.table import Table
 
 from ai.models.errors import ModelError
 from application.agents.agent_turn_service import AgentTurnReport
+from application.scene.scene_service import SceneTick
 from application.views import GameView
 from domain.common.errors import DomainError, PersistenceError
 from infrastructure.telemetry.in_memory import InMemoryTelemetrySink
@@ -94,6 +96,11 @@ def main(
         action="store_true",
         help="emit per-call LLM telemetry lines (JSON) to stderr or $CONCLAVE_TELEMETRY_LOG",
     )
+    parser.add_argument(
+        "--world",
+        default=None,
+        help="location graph TOML (name under config/, e.g. world.toml) for travel scenes",
+    )
     # argv=None means "no CLI arguments" so library/test callers are isolated
     # from the host process's sys.argv; the __main__ block passes it explicitly.
     args = parser.parse_args(argv if argv is not None else [])
@@ -107,6 +114,7 @@ def main(
                 db=args.db,
                 agent_mode=None if args.agent == "off" else args.agent,
                 gm_mode=args.gm,
+                world_path=args.world,
             )
         )
     except (ValueError, PersistenceError, ModelError) as error:
@@ -146,6 +154,16 @@ def main(
                 render_gm_result(console, pending.gm_result, view)
             continue
 
+        # Phase 21 scene loop: agents act between human inputs. With
+        # tick_seconds == 0 (default) exactly one scene action runs per
+        # prompt iteration — the human turn pauses the loop (grill #3).
+        if session.scene_service is not None:
+            tick = session.scene_service.tick(session.game_id)
+            _render_scene_tick(console, tick)
+            if session.scene_service.tick_seconds > 0.0:
+                time.sleep(min(session.scene_service.tick_seconds, 5.0))
+                continue
+
         try:
             raw = (input_fn or input)("conclave> ")
         except (EOFError, KeyboardInterrupt):
@@ -166,7 +184,8 @@ def main(
                 continue
             if outcome.argument == "/help":
                 console.print(
-                    "Commands: attack <target>, say <text>, /status, /telemetry, /help, /quit"
+                    "Commands: attack <target>, go <exit>, say <text>,"
+                    " /status, /telemetry, /help, /quit"
                 )
             else:
                 console.print(f"Unknown command: {outcome.argument}")
@@ -179,6 +198,20 @@ def main(
             continue
         if outcome.kind == "no_target":
             console.print(f"No such character: {outcome.argument}")
+            continue
+        if outcome.kind == "unknown_exit":
+            console.print(f"No exit that way: {outcome.argument}")
+            continue
+        if outcome.kind == "error":
+            console.print(f"[red]{outcome.error}[/red]")
+            continue
+        if outcome.kind == "travel":
+            if outcome.turn_report is not None:
+                render_report(console, outcome.turn_report, outcome.turn_report.view)
+            if outcome.error is not None:
+                console.print(f"[red]{outcome.error}[/red]")
+            if outcome.gm_result is not None:
+                render_gm_result(console, outcome.gm_result, view)
             continue
         if outcome.kind == "attack":
             if outcome.error is not None:
@@ -194,3 +227,14 @@ def main(
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
+
+def _render_scene_tick(console: Console, tick: SceneTick) -> None:
+    """Render one out-of-combat scene step; never prints internal state."""
+    if tick.kind != "scene_action":
+        return
+    if tick.public_message and tick.actor_name:
+        console.print(f"[cyan]{tick.actor_name}[/cyan]: {tick.public_message.strip()}")
+    if tick.travel_report is not None:
+        render_report(console, tick.travel_report, tick.travel_report.view)
+    if tick.narration:
+        console.print(f"[italic]{tick.narration}[/italic]")

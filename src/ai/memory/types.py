@@ -24,6 +24,7 @@ class MemoryRecord:
     text: str
     round_number: int | None
     embedding: tuple[float, ...]
+    location: str | None = None
 
 
 @dataclass(frozen=True)
