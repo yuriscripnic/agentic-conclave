@@ -57,3 +57,26 @@ def test_static_files_exist_and_are_non_empty() -> None:
         path = STATIC_DIR / name
         assert path.is_file(), f"missing static file: {name}"
         assert path.stat().st_size > 0, f"empty static file: {name}"
+
+
+def test_app_js_polls_status_with_interval_and_stop_condition() -> None:
+    response = _client().get("/assets/app.js")
+    assert response.status_code == 200
+    assert "2500" in response.text
+    assert "game_over" in response.text
+
+
+def test_app_js_filters_events_client_side_by_sequence() -> None:
+    response = _client().get("/assets/app.js")
+    assert response.status_code == 200
+    assert "lastSeq" in response.text
+    assert "sequence > lastSeq" in response.text
+
+
+def test_game_html_contains_feed_and_panel_containers() -> None:
+    response = _client().get("/games/any-id")
+    assert response.status_code == 200
+    assert 'id="event-feed"' in response.text
+    assert 'id="party-panel"' in response.text
+    assert 'id="enemies-panel"' in response.text
+    assert 'id="combat-tracker"' in response.text

@@ -75,3 +75,18 @@ button:disabled {
   border-left: 3px solid #4f6df5;
   padding-left: 0.75rem;
 }
+
+#event-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 24rem;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+#event-feed li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #2c3038;
+  overflow-wrap: anywhere;
+}
