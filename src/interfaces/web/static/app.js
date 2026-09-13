@@ -114,6 +114,8 @@ function formatEvent(envelope, nameById = {}) {
 let lastSeq = 0; // highest event sequence already rendered (client-side filtering)
 let pollTimer = null;
 let pollInFlight = false;
+let currentGameId = null; // set by bootGame; used by drawer submits for refresh
+let latestView = null; // latest polled GameView; feeds the attack target select
 
 function parseGameId() {
   const marker = "/games/";
@@ -258,6 +260,9 @@ function renderCombatTracker(view) {
   tracker.appendChild(order);
 }
 
+let currentGameId = null; // set by bootGame; the drawer submits against it
+let latestView = null; // latest polled GameView; feeds the attack target select
+
 function render(status, view) {
   const statusLine = document.getElementById("status-line");
   if (!statusLine) return;
@@ -296,6 +301,8 @@ async function pollOnce(gameId, errorEl) {
     stopPolling();
   }
   render(status, view);
+  latestView = view;
+  populateTargetSelect(view);
   const feed = await api(`GET /api/v1/games/${gameId}/events`);
   ingestEvents(gameId, feed.events || [], nameMapFromView(view));
 }
@@ -327,6 +334,163 @@ function startPolling(gameId, errorEl) {
   pollTimer = setInterval(tick, POLL_INTERVAL_MS);
 }
 
+// Task 6 — human input drawer, collapsed by default (<details> in game.html).
+// Two lanes: speak (/input) and act (/actions). Targets are built from the
+// latest polled GameView; resolution stays server-side (resolve_target).
+
+// One immediate poll refresh after any successful POST, so the drawer's
+// effect appears instantly instead of waiting for the 2.5 s tick. Client-side
+// only; the in-flight guard keeps it from overlapping the regular tick.
+async function refreshOnce(gameId, errorEl) {
+  if (pollInFlight) return;
+  pollInFlight = true;
+  try {
+    await pollOnce(gameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+function showGmStrip(kind, gm) {
+  const strip = document.getElementById("gm-strip");
+  if (!strip) return;
+  const parts = [];
+  if (kind) parts.push(`[${kind}]`);
+  if (gm && gm.narration) parts.push(gm.narration);
+  if (gm && gm.npc_reply) parts.push(gm.npc_reply);
+  if (parts.length === 0) {
+    strip.hidden = true;
+    strip.textContent = "";
+    return;
+  }
+  // textContent only — model output is never assigned to markup.
+  strip.textContent = parts.join("\n");
+  strip.hidden = false;
+}
+
+function reportRejection(element, report) {
+  element.textContent = `Rejected (${report.error_code ?? "-"}): ${report.reason ?? "-"}`;
+  element.hidden = false;
+}
+
+function setDrawerDisabled(disabled) {
+  // Disable the whole drawer while any submit is in flight.
+  const drawer = document.getElementById("input-drawer");
+  if (!drawer) return;
+  for (const control of drawer.querySelectorAll("button, textarea, input, select")) {
+    control.disabled = disabled;
+  }
+}
+
+function populateTargetSelect(view) {
+  const select = document.getElementById("attack-target");
+  if (!select) return;
+  const previous = select.value;
+  select.replaceChildren();
+  // A targetless attack is plausible server-side (resolve_target only runs
+  // when action.target is given), so an explicit "no target" option exists.
+  select.appendChild(buildElement("option", null, "No target"));
+  const members = (view && view.party ? view.party : []).concat(view && view.enemies ? view.enemies : []);
+  for (const member of members) {
+    if (!member || !member.id) continue;
+    const option = buildElement(
+      "option",
+      null,
+      `${member.name ?? member.id} — ${member.hp_current ?? "-"} / ${member.hp_max ?? "-"}`,
+    );
+    option.value = member.id;
+    select.appendChild(option);
+  }
+  if ([...select.options].some((option) => option.value === previous)) {
+    select.value = previous; // keep the player's selection across polls
+  }
+}
+
+async function submitSpeak(conversation, resultEl, errorEl) {
+  errorEl.hidden = true;
+  errorEl.textContent = "";
+  const text = conversation.value.trim();
+  if (text === "") return; // empty input is a no-op, no request sent
+  setDrawerDisabled(true);
+  try {
+    const response = await api(`POST /api/v1/games/${currentGameId}/input`, {
+      headers: {
+        "Content-Type": "application/json",
+        // Fresh key per submit; a key is never reused across submissions.
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ text }),
+    });
+    showGmStrip(response.kind, response.gm);
+    const report = response.report;
+    if (report && report.accepted === false) {
+      reportRejection(resultEl, report);
+    } else {
+      conversation.value = "";
+      resultEl.hidden = true;
+      resultEl.textContent = "";
+    }
+    await refreshOnce(currentGameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    setDrawerDisabled(false);
+  }
+}
+
+async function submitAttack(targetSelect, weaponInput, resultEl, errorEl) {
+  errorEl.hidden = true;
+  errorEl.textContent = "";
+  resultEl.hidden = true;
+  resultEl.textContent = "";
+  setDrawerDisabled(true);
+  try {
+    const payload = { action_type: "attack" };
+    if (targetSelect.value !== "") payload.target = targetSelect.value;
+    const weapon = weaponInput.value.trim();
+    if (weapon !== "") payload.weapon_id = weapon;
+    const report = await api(`POST /api/v1/games/${currentGameId}/actions`, {
+      headers: {
+        "Content-Type": "application/json",
+        // Fresh key per submit; a key is never reused across submissions.
+        "Idempotency-Key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (report.accepted) {
+      resultEl.textContent = "Attack submitted.";
+      resultEl.hidden = false;
+    } else {
+      reportRejection(resultEl, report);
+    }
+    await refreshOnce(currentGameId, errorEl);
+  } catch (error) {
+    showError(errorEl, error);
+  } finally {
+    setDrawerDisabled(false);
+  }
+}
+
+function wireDrawer(errorEl) {
+  const conversation = document.getElementById("speak-textarea");
+  const conversationForm = document.getElementById("speak-form");
+  const targetSelect = document.getElementById("attack-target");
+  const weaponInput = document.getElementById("attack-weapon");
+  const attackForm = document.getElementById("attack-form");
+  const resultEl = document.getElementById("drawer-result");
+  if (!conversationForm || !attackForm) return;
+  conversationForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitSpeak(conversation, resultEl, errorEl);
+  });
+  attackForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitAttack(targetSelect, weaponInput, resultEl, errorEl);
+  });
+}
+
 function bootGame() {
   const leadIn = document.getElementById("lead-in");
   if (!leadIn) return;
@@ -337,8 +501,10 @@ function bootGame() {
   }
   const gameId = parseGameId();
   if (!gameId) return;
+  currentGameId = gameId;
   lastSeq = loadLastSeq(gameId);
   const errorEl = document.getElementById("game-error");
+  wireDrawer(errorEl);
   startPolling(gameId, errorEl);
 }
 
