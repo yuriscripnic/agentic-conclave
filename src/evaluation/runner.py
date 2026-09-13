@@ -34,7 +34,12 @@ from session import (
     open_session,
 )
 
-_PROVIDER_MODES = {"fake": ("fake", "fake"), "openrouter": ("llm", "llm")}
+_PROVIDER_MODES = {
+    "fake": ("fake", "fake"),
+    "openrouter": ("llm", "llm"),
+    "opencode-go": ("llm", "llm"),
+}
+_LLM_PROVIDERS = ("openrouter", "opencode-go")
 _PARTY_SNAPSHOT_LIMIT = 128
 
 
@@ -56,7 +61,7 @@ def run_scenario(
         db=db,
         agent_mode=agent_mode,
         gm_mode=gm_mode,
-        provider=provider if provider == "openrouter" else None,
+        provider=provider if provider in _LLM_PROVIDERS else None,
     )
     model = load_model_profiles(CONFIG_DIR / "llm.toml").get("player").model
 

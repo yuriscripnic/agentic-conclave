@@ -17,6 +17,7 @@ from evaluation.model import ScenarioResult
 from evaluation.report import write_report
 from evaluation.runner import run_scenario
 from evaluation.scenarios import SCENARIOS, get_scenario
+from session.factory import PROVIDER_API_KEY_ENV
 
 
 def _table(results: list[ScenarioResult]) -> Table:
@@ -60,7 +61,9 @@ def _table(results: list[ScenarioResult]) -> Table:
 def main(argv: list[str] | None = None, console: Console | None = None) -> int:
     parser = argparse.ArgumentParser(prog="conclave-eval")
     parser.add_argument("--scenario", default="all", help="all | <scenario name>")
-    parser.add_argument("--provider", choices=("fake", "openrouter"), default="fake")
+    parser.add_argument(
+        "--provider", choices=("fake", "openrouter", "opencode-go"), default="fake"
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--repeat", type=int, default=None, help="override the scenario's repeat_runs"
@@ -70,9 +73,10 @@ def main(argv: list[str] | None = None, console: Console | None = None) -> int:
     args = parser.parse_args(argv if argv is not None else [])
 
     console = console or Console()
-    if args.provider == "openrouter" and not os.environ.get("OPENROUTER_API_KEY"):
+    env_var = PROVIDER_API_KEY_ENV.get(args.provider) if args.provider != "fake" else None
+    if env_var and not os.environ.get(env_var):
         console.print(
-            "[red]OPENROUTER_API_KEY is not set; export it to run live evaluation[/red]"
+            f"[red]{env_var} is not set; export it to run live evaluation[/red]"
         )
         return 2
     try:
