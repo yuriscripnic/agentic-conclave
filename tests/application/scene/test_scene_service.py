@@ -1,8 +1,6 @@
 """SceneService: one agent action per tick, deterministic guards (Task 8)."""
 
-from typing import Any
 
-from application.scene.scene_service import SceneLoopConfig, SceneService
 from session import SessionConfig, build_session
 
 
