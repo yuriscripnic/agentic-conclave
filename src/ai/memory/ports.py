@@ -26,4 +26,8 @@ class MemoryRepository(Protocol):
         agent_key: str,
         query: tuple[float, ...],
         limit: int,
+        *,
+        location: str | None = None,
     ) -> tuple[MemoryRecord, ...]: ...
+    # location filters EPISODIC records to the agent's scene; SEMANTIC
+    # records and untagged records always surface (grill decision #7).

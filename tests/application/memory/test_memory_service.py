@@ -461,3 +461,50 @@ def test_record_turn_stamps_its_embed_invocation() -> None:
     assert invocation.correlation_id == "corr-10"
     assert invocation.retrieval_count == 0
     assert invocation.timestamp is not None
+
+
+def test_location_scoped_retrieval_filters_episodic_keeps_semantic() -> None:
+    here = AgentPerception(
+        round_number=1,
+        active_actor_id="",
+        self_view=CharacterView(
+            id="brix", name="Brix", character_class="fighter", level=1,
+            hp_current=10, hp_max=10, armor_class=14, conditions=[], is_defeated=False,
+        ),
+        opponents=(),
+        initiative_order=(),
+        location="loc-a",
+    )
+    repository = InMemoryMemoryRepository()
+    gateway = _CapturingEmbeddingGateway()
+    service = MemoryService(gateway, repository, model="embed-fake")
+    vector = asyncio.run(
+        gateway._inner.embed(
+            EmbeddingRequest(texts=("scene gossip",), model="embed-fake")
+        )
+    ).vectors[0]
+    record_scene = MemoryRecord(
+        memory_id="m1", game_id="g1", agent_key="brix",
+        kind=MemoryKind.EPISODIC, text="scene gossip",
+        round_number=1, embedding=vector, location="loc-a",
+    )
+    record_elsewhere = MemoryRecord(
+        memory_id="m2", game_id="g1", agent_key="brix",
+        kind=MemoryKind.EPISODIC, text="elsewhere gossip",
+        round_number=2, embedding=vector, location="loc-b",
+    )
+    record_semantic = MemoryRecord(
+        memory_id="m3", game_id="g1", agent_key="brix",
+        kind=MemoryKind.SEMANTIC, text="the well is dry",
+        round_number=2, embedding=vector, location=None,
+    )
+    for record in (record_scene, record_elsewhere, record_semantic):
+        repository.append(record)
+
+    memories = service.retrieve("g1", here)
+
+    texts = [memory.text for memory in memories]
+    assert "elsewhere gossip" not in texts
+    assert set(texts) == {"scene gossip", "the well is dry"}
+    query_line = gateway.requests[-1].texts[0]
+    assert "loc-a" in query_line

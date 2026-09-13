@@ -36,6 +36,8 @@ class InMemoryMemoryRepository:
         agent_key: str,
         query: tuple[float, ...],
         limit: int,
+        *,
+        location: str | None = None,
     ) -> tuple[MemoryRecord, ...]:
         if limit <= 0:
             return ()
@@ -43,6 +45,12 @@ class InMemoryMemoryRepository:
             record
             for record in self._records
             if record.game_id == game_id and record.agent_key == agent_key
+            and (
+                location is None
+                or record.location is None
+                or record.kind is not MemoryKind.EPISODIC
+                or record.location == location
+            )
         ]
         scored = sorted(
             scoped,

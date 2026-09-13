@@ -55,8 +55,8 @@ class PgvectorMemoryRepository:
                     """
                     INSERT INTO agent_memories
                         (memory_id, game_id, agent_key, kind, text, round_number,
-                         embedding)
-                    VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s::vector)
+                         embedding, location)
+                    VALUES (%s::uuid, %s::uuid, %s, %s, %s, %s, %s::vector, %s)
                     """,
                     (
                         record.memory_id,
@@ -66,6 +66,7 @@ class PgvectorMemoryRepository:
                         record.text,
                         record.round_number,
                         _vector_literal(record.embedding),
+                        record.location,
                     ),
                 )
         except psycopg.Error as error:
@@ -77,6 +78,8 @@ class PgvectorMemoryRepository:
         agent_key: str,
         query: tuple[float, ...],
         limit: int,
+        *,
+        location: str | None = None,
     ) -> tuple[MemoryRecord, ...]:
         if limit <= 0:
             return ()
@@ -84,13 +87,15 @@ class PgvectorMemoryRepository:
             rows = self._connection.execute(
                 """
                 SELECT memory_id, game_id, agent_key, kind, text, round_number,
-                       embedding
+                       embedding, location
                 FROM agent_memories
                 WHERE game_id = %s::uuid AND agent_key = %s
+                AND (location IS NULL OR kind != 'episodic'
+                     OR (kind = 'episodic' AND location = %s))
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (game_id, agent_key, _vector_literal(query), limit),
+                (game_id, agent_key, location, _vector_literal(query), limit),
             ).fetchall()
         except psycopg.Error as error:
             raise PersistenceError(f"could not search memories: {error}") from error
@@ -103,6 +108,7 @@ class PgvectorMemoryRepository:
                 text=row["text"],
                 round_number=row["round_number"],
                 embedding=_embedding_from_row(row["embedding"]),
+                location=row["location"],
             )
             for row in rows
         )

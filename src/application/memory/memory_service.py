@@ -50,11 +50,17 @@ class MemoryService:
             f"{me.name} the {me.character_class}; "
             f"round {perception.round_number}; opponents: {opponent_names}"
         )
+        if perception.location is not None:
+            query += f"; scene: {perception.location}"
         response = asyncio.run(
             self._gateway.embed(EmbeddingRequest(texts=(query,), model=self._model))
         )
         memories = self._repository.search(
-            game_id, me.id, response.vectors[0], limit=self._retrieval_limit
+            game_id,
+            me.id,
+            response.vectors[0],
+            limit=self._retrieval_limit,
+            location=perception.location,
         )
         self._flush(
             response.invocation,
@@ -73,6 +79,7 @@ class MemoryService:
         *,
         note: str | None = None,
         correlation_id: str | None = None,
+        location: str | None = None,
     ) -> None:
         """Record this turn's episodic (events) and semantic (note) memories."""
         if not turn_report.accepted:
@@ -109,6 +116,7 @@ class MemoryService:
                     text=text,
                     round_number=perception.round_number,
                     embedding=vector,
+                    location=location,
                 )
             )
 

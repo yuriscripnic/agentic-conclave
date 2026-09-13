@@ -29,8 +29,7 @@ class InputOutcome:
     """The effect of one human input line, for the caller to render."""
 
     # "empty"|"command"|"unknown"|"attack"|"say"|"travel"|"no_target"
-    # | "unknown_exit"|"error"
-    kind: str
+    # "unknown_exit"|"error"
     kind: str
     argument: str = ""
     turn_report: TurnReport | None = None
