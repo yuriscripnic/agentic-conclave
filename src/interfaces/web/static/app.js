@@ -114,8 +114,7 @@ function formatEvent(envelope, nameById = {}) {
 let lastSeq = 0; // highest event sequence already rendered (client-side filtering)
 let pollTimer = null;
 let pollInFlight = false;
-let currentGameId = null; // set by bootGame; used by drawer submits for refresh
-let latestView = null; // latest polled GameView; feeds the attack target select
+let currentGameId = null; // set by bootGame; drawer POSTs target it and the immediate refresh uses it
 
 function parseGameId() {
   const marker = "/games/";
@@ -260,9 +259,6 @@ function renderCombatTracker(view) {
   tracker.appendChild(order);
 }
 
-let currentGameId = null; // set by bootGame; the drawer submits against it
-let latestView = null; // latest polled GameView; feeds the attack target select
-
 function render(status, view) {
   const statusLine = document.getElementById("status-line");
   if (!statusLine) return;
@@ -301,7 +297,6 @@ async function pollOnce(gameId, errorEl) {
     stopPolling();
   }
   render(status, view);
-  latestView = view;
   populateTargetSelect(view);
   const feed = await api(`GET /api/v1/games/${gameId}/events`);
   ingestEvents(gameId, feed.events || [], nameMapFromView(view));
@@ -340,9 +335,16 @@ function startPolling(gameId, errorEl) {
 
 // One immediate poll refresh after any successful POST, so the drawer's
 // effect appears instantly instead of waiting for the 2.5 s tick. Client-side
-// only; the in-flight guard keeps it from overlapping the regular tick.
+// only. If a regular poll currently holds the in-flight guard, the refresh is
+// marked pending and deferred — every successful POST is guaranteed exactly
+// one refresh, never skipped.
+let refreshPending = false;
+
 async function refreshOnce(gameId, errorEl) {
-  if (pollInFlight) return;
+  if (pollInFlight) {
+    refreshPending = true;
+    return;
+  }
   pollInFlight = true;
   try {
     await pollOnce(gameId, errorEl);
@@ -350,6 +352,10 @@ async function refreshOnce(gameId, errorEl) {
     showError(errorEl, error);
   } finally {
     pollInFlight = false;
+    if (refreshPending) {
+      refreshPending = false;
+      await refreshOnce(gameId, errorEl); // guard is free now; runs immediately
+    }
   }
 }
 

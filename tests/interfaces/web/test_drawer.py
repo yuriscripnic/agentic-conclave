@@ -7,6 +7,7 @@ disabled while a submit is in flight, and an immediate refresh runs after
 each successful POST.
 """
 import re
+from collections import Counter
 
 from fastapi.testclient import TestClient
 
@@ -78,17 +79,33 @@ def test_immediate_refresh_after_each_successful_post() -> None:
     js = _app_js()
     assert "async function refreshOnce(" in js
     assert js.count("await refreshOnce(currentGameId, errorEl)") == 2
-    # The refresh reuses the same in-flight guard as the poller.
-    assert "if (pollInFlight) return;" in js
+    # The refresh reuses the same in-flight guard as the poller, and a POST
+    # issued while a poll is in flight still gets exactly one refresh later.
+    assert "if (pollInFlight) {" in js
+    assert "refreshPending = true;" in js
+    assert "refreshPending = false;" in js
 
 
 def test_target_select_populates_from_latest_view() -> None:
     js = _app_js()
-    assert "latestView = view;" in js
     assert "populateTargetSelect(view);" in js
     populate = js.split("function populateTargetSelect", 1)[1].split("\nfunction ", 1)[0]
     for field in ("party", "enemies", "name", "hp_current", "hp_max", "member.id"):
         assert field in populate
+
+
+def test_single_top_level_declaration_per_name() -> None:
+    # JS last-declaration-wins across let/const/function alike: a repeated
+    # `let` is a parse-time SyntaxError that kills the whole script.
+    counter = Counter(
+        re.findall(
+            r"^(?:let|const|class|function) ([A-Za-z_$][\w$]*)",
+            _app_js(),
+            re.MULTILINE,
+        )
+    )
+    duplicates = [name for name, count in counter.items() if count > 1]
+    assert duplicates == [], duplicates
 
 
 def test_single_drawer_function_declarations() -> None:
