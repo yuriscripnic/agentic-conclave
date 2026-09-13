@@ -40,10 +40,10 @@ Without `--db postgres` the game behaves exactly as before (in-memory).
 
 LLM access goes through a provider-agnostic `ModelGateway` (`src/ai/models/`).
 Tests and offline runs use the deterministic `FakeModelGateway`; live calls use
-the OpenRouter adapter behind `OPENROUTER_API_KEY`:
+the OpenCode Go adapter behind `OPENCODE_API_KEY`:
 
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
+export OPENCODE_API_KEY=...
 ```
 
 Model profiles (`gm`, `player`, `cheap`, `reasoning`, `creative`, `embedding`)
@@ -57,7 +57,7 @@ decide their own attacks through the model gateway and coordinate through
 party chatter; the human keeps commanding Arin:
 
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
+export OPENCODE_API_KEY=...
 .venv/bin/python -m interfaces.cli.app --agent llm --seed 42
 ```
 
@@ -84,8 +84,10 @@ embedding similarity and rendered into the agent's prompt.
 
 - `--agent fake` uses a deterministic stdlib embedder and the in-memory
   repository — fully offline.
-- `--agent llm` embeds with `openai/text-embedding-3-small` through OpenRouter
-  (the one sanctioned carve-out from the cheap-chat-model directive).
+- `--agent llm` embeds with the deterministic stdlib embedder when the chat
+  provider is `opencode-go` (Go exposes no /embeddings endpoint); with
+  `--provider openrouter` it uses `openai/text-embedding-3-small` through
+  OpenRouter (the sanctioned carve-out, Plan 6).
 - `--db postgres` persists memories to `agent_memories` (pgvector cosine search,
   migration `002_agent_memories.sql`; a PostgreSQL with the `vector` extension
   available is required — pgserver ships it); `--db memory` keeps them in RAM.
@@ -107,8 +109,8 @@ domain decides).
 # Deterministic offline demo: scripted agents + scripted GM (both defaults)
 .venv/bin/python -c "import sys; from interfaces.cli.app import main; sys.exit(main(sys.argv[1:]))"
 
-# Real models via OpenRouter (--agent llm --gm llm; [profiles.gm] in config/llm.toml)
-export OPENROUTER_API_KEY=...   # shell only; never commit keys
+# Real models via OpenCode Go (--agent llm --gm llm; [profiles.gm] in config/llm.toml)
+export OPENCODE_API_KEY=...   # shell only; never commit keys
 .venv/bin/python -c "import sys; from interfaces.cli.app import main; sys.exit(main(sys.argv[1:]))" --agent llm --gm llm
 ```
 
@@ -139,7 +141,7 @@ Run repeatable, seeded scenarios against real sessions:
 .venv/bin/conclave-eval                              # all scenarios, offline (fake gateways)
 .venv/bin/conclave-eval --scenario goblin-skirmish   # one scenario
 .venv/bin/conclave-eval --repeat 5 --seed 7          # more runs for consistency stats
-OPENROUTER_API_KEY=... .venv/bin/conclave-eval --provider openrouter   # live comparison
+OPENCODE_API_KEY=... .venv/bin/conclave-eval --provider opencode-go   # live comparison
 ```
 
 Reports land in `eval-results/` (git-ignored): one JSON per scenario with checks,

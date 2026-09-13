@@ -110,12 +110,13 @@ def test_main_agent_fake_agent_takes_a_turn(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_main_agent_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     console, buffer = _console()
     code = main(argv=["--agent", "llm"], console=console, input_fn=_scripted())
     assert code == 2
-    assert "OPENROUTER_API_KEY" in buffer.getvalue()
+    assert "OPENCODE_API_KEY" in buffer.getvalue()
 
 
 def test_main_agent_off_has_no_agent_output(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,11 +185,11 @@ def test_main_gm_off_prints_no_gm_lines(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_main_gm_llm_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
     console, buffer = _console()
     code = main(argv=["--gm", "llm"], console=console, input_fn=_scripted("/quit"))
     assert code == 2
-    assert "OPENROUTER_API_KEY" in buffer.getvalue()
+    assert "OPENCODE_API_KEY" in buffer.getvalue()
 
 
 def test_main_telemetry_command_prints_session_totals(
