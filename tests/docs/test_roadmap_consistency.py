@@ -48,3 +48,20 @@ def test_plans_readme_lists_rules_core_in_order() -> None:
 
 def test_plans_readme_freezes_part_three() -> None:
     assert FROZEN in _read(PLANS_README)
+
+
+CLAUDE_MD = ROOT / "CLAUDE.md"
+
+
+def test_claude_md_states_the_gate() -> None:
+    assert GATE in _read(CLAUDE_MD)
+
+
+def test_claude_md_expands_phase_2_into_the_rules_core() -> None:
+    text = _read(CLAUDE_MD)
+    positions = [text.index(row) for row in RULES_CORE_ROWS]
+    assert positions == sorted(positions)
+
+
+def test_claude_md_states_the_freeze_licence() -> None:
+    assert FREEZE in _read(CLAUDE_MD)

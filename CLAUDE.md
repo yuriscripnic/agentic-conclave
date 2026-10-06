@@ -489,6 +489,11 @@ AC
 speed
 level
 class
+positioning
+cover
+line of sight
+inventory use
+equipment
 ```
 
 ## Level 2
@@ -510,6 +515,8 @@ Hide
 Ready
 Search
 Use Item
+skills
+contests
 ```
 
 ## Level 3
@@ -522,6 +529,9 @@ attacks
 damage
 death
 conditions
+death saving throws
+stabilization
+rests
 ```
 
 ## Level 4
@@ -539,7 +549,7 @@ Do not implement every class/subclass immediately.
 
 ## Level 5
 
-Add data-driven spells.
+Add data-driven spells. The spell list is data-driven from `data/rules/`.
 
 ---
 
@@ -1649,19 +1659,28 @@ world
 game state
 ```
 
-### Phase 2
+### Phase 2 — Rules Engine (the Rules Core programme, R1-R10)
 
-Rules engine:
+Phase 2 is a programme, not a single step. It is not complete until R10 and the
+Bridge are done. Listed in dependency order:
 
 ```text
-dice
-actions
-combat
-turns
-conditions
-damage
-death
+R1 Grid & space - battle map, coordinates, distance, reach, cover, line of sight
+R2 Ruleset & data - Ruleset port, data/rules/*.toml, loader, SRD 5.2 NOTICE
+R3 Actions - resolvers + events for all ActionType members
+R4 Conditions - typed SRD conditions with mechanical effects
+R5 Life & death - dying, death saving throws, stabilization, healing, rests
+R6 Skills & contests - skills, passive scores, grapple/shove
+R7 Inventory - items, equip, armor to AC, consumables, loot, gold
+R8 Progression - XP, level-up, hit dice, ASI, class features
+R9 Spellcasting - slots, casting, grid AoE templates, concentration
+R10 Conformance - seeded SRD conformance suite and coverage report
+Bridge - re-integrate agents; unpause Phases 6-13
 ```
+
+> **PART II GATE: No Part III work resumes, and no new agentic plan is written, until R10 and the Bridge are complete.**
+
+> **FROZEN ADAPTER LICENCE: Part III adapters may be updated only enough to keep the existing suite green; no new agent capability is added until the Bridge.**
 
 ### Phase 3
 
