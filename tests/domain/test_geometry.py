@@ -1,6 +1,7 @@
 import pytest
 
-from domain.space.geometry import distance_ft
+from domain.space.board import Board
+from domain.space.geometry import distance_ft, line_of_sight
 from domain.space.square import Square
 
 
@@ -22,3 +23,38 @@ def test_distance_uses_the_5_10_5_rule(a: Square, b: Square, expected: int) -> N
 
 def test_distance_is_symmetric() -> None:
     assert distance_ft(Square(0, 0), Square(3, 2)) == distance_ft(Square(3, 2), Square(0, 0))
+
+
+def _board(walls: set[tuple[int, int]]) -> Board:
+    return Board(
+        width=6,
+        height=6,
+        walls=frozenset(Square(x, y) for x, y in walls),
+    )
+
+
+def test_open_room_has_line_of_sight() -> None:
+    assert line_of_sight(_board(set()), Square(0, 0), Square(5, 5))
+
+
+def test_wall_in_the_same_row_blocks_sight() -> None:
+    assert not line_of_sight(_board({(2, 0)}), Square(0, 0), Square(4, 0))
+
+
+def test_peeking_past_a_wall_corner_sees_the_target() -> None:
+    # Attacker (0,0), target (2,2), wall (1,1): the segment (1,0)->(3,2) touches
+    # the wall only at its corner (2,1), so sight exists.
+    assert line_of_sight(_board({(1, 1)}), Square(0, 0), Square(2, 2))
+
+
+def test_line_grazing_only_a_wall_corner_is_clear() -> None:
+    assert line_of_sight(_board({(1, 1)}), Square(0, 0), Square(1, 2))
+
+
+def test_solid_wall_block_between_diagonals_blocks_sight() -> None:
+    walls = {(1, 1), (1, 2), (2, 1), (2, 2)}
+    assert not line_of_sight(_board(walls), Square(0, 0), Square(3, 3))
+
+
+def test_a_wall_nowhere_near_the_line_does_not_block() -> None:
+    assert line_of_sight(_board({(4, 4)}), Square(0, 0), Square(1, 1))
