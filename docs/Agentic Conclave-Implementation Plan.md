@@ -111,7 +111,7 @@ The domain must not import infrastructure or interface-layer code.
 
 The phases below are grouped into three parts.
 
-**Part I - Deterministic core.** Phases 0-7. Complete.
+**Part I - Deterministic core.** Phases 0-8. Complete.
 
 **Part II - Rules Core.** The R1-R10 programme plus the Bridge. This is the only
 active work. Phase 2 in `CLAUDE.md` §52 is this programme; it is not complete
@@ -119,7 +119,7 @@ until R10 and the Bridge are done.
 
 > **PART II GATE: No Part III work resumes, and no new agentic plan is written, until R10 and the Bridge are complete.**
 
-**Part III - AI platform.** Phases 8-21. Built and tested, but **Frozen (pending Rules Core)**.
+**Part III - AI platform.** Phases 9-21. Built and tested, but **Frozen (pending Rules Core)**.
 
 > **FROZEN ADAPTER LICENCE: Part III adapters may be updated only enough to keep the existing suite green; no new agent capability is added until the Bridge.**
 
@@ -626,7 +626,7 @@ produces working, testable software on its own, ends in a runnable CLI milestone
 with tests, and is written when its turn comes. Ordering and dependencies are
 authoritative in `docs/superpowers/plans/README.md`.
 
-## R1 — Grid & space
+## R1 Grid & space
 
 Battle map of 5-ft squares, coordinates, distance in feet (5e diagonal rule),
 occupied squares, reach, cover (+2/+5 AC), and line-of-sight validation.
@@ -634,7 +634,7 @@ occupied squares, reach, cover (+2/+5 AC), and line-of-sight validation.
 **Exit:** an attacker out of line of sight or behind cover resolves
 deterministically; §28's "target 100 ft away" reproduces exactly.
 
-## R2 — Ruleset & data
+## R2 Ruleset & data
 
 `Ruleset` port; `data/rules/*.toml` layout and validating loader; CC-BY-4.0
 NOTICE; migrate existing weapon/class/monster constants.
@@ -642,7 +642,7 @@ NOTICE; migrate existing weapon/class/monster constants.
 **Exit:** rules data loads from TOML behind the port; swapping the ruleset id is
 configuration-only.
 
-## R3 — Actions
+## R3 Actions
 
 Resolvers and events for the nine inert actions; `BONUS_ACTION` and `REACTION`
 gain real members (off-hand attack, opportunity attack).
@@ -650,7 +650,7 @@ gain real members (off-hand attack, opportunity attack).
 **Exit:** every `ActionType` member has a resolver, events and a CLI path; no
 dead enum values.
 
-## R4 — Conditions
+## R4 Conditions
 
 Typed SRD condition set with an effects table applied at the correct resolution
 points; application, removal and recovery.
@@ -658,34 +658,34 @@ points; application, removal and recovery.
 **Exit:** every condition alters rolls, movement or actions per SRD 5.2, tested
 per condition.
 
-## R5 — Life & death
+## R5 Life & death
 
 0 HP to unconscious, death saving throws (3/3), damage-at-0, massive damage,
 stabilization, healing, short and long rests.
 
 **Exit:** the full down-and-recover cycle is deterministic and replayable.
 
-## R6 — Skills & contests
+## R6 Skills & contests
 
 Skill list, proficiency, passive scores, contested checks (grapple/shove).
 
 **Exit:** `CheckResolver`'s check and save paths are reachable from real actions.
 
-## R7 — Inventory
+## R7 Inventory
 
 Item and armor models, equip/unequip, armor to AC, consumables, loot, gold,
 carry capacity.
 
 **Exit:** inventory is playable state, not persistence-only.
 
-## R8 — Progression
+## R8 Progression
 
 XP thresholds, level-up, hit dice, ASI, class features for Fighter, Rogue,
 Wizard and Cleric.
 
 **Exit:** a character levels 1 to 20 deterministically.
 
-## R9 — Spellcasting
+## R9 Spellcasting
 
 Spell model, slots, known/prepared, cantrips, spell attacks and saves, grid AoE
 templates, concentration, rituals. Phased: 9a slots and damage, 9b control and
@@ -693,7 +693,7 @@ concentration, 9c utility and rituals, 9d full four-class SRD list.
 
 **Exit:** a Wizard and a Cleric play by SRD spell rules against the grid.
 
-## R10 — Conformance
+## R10 Conformance
 
 Seeded SRD conformance and property suite; rules-coverage report.
 
@@ -708,7 +708,7 @@ Part III.
 
 ---
 
-# 11. Phase 8 — Persistence (Part III — Frozen (pending Rules Core))
+# 11. Phase 8 — Persistence
 
 ## Goal
 

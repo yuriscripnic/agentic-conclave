@@ -95,3 +95,59 @@ def test_root_readme_points_at_the_roadmap() -> None:
     text = _read(ROOT_README)
     assert "docs/superpowers/plans/README.md" in text
     assert "Rules Core" in text
+
+
+def _table_row(text: str, number: int) -> str:
+    for line in text.splitlines():
+        if line.startswith(f"| {number} |"):
+            return line
+    raise AssertionError(f"no plan table row {number}")
+
+
+def test_every_part_three_plan_row_is_frozen() -> None:
+    text = _read(PLANS_README)
+    for number in range(3, 13):
+        row = _table_row(text, number)
+        assert FROZEN in row, row
+        assert "In-progress" not in row, row
+
+
+def test_plans_readme_states_part_ranges() -> None:
+    text = _read(PLANS_README)
+    assert "Plans 1-2" in text
+    assert "Plans 3-12" in text
+
+
+def test_implementation_plan_states_part_ranges() -> None:
+    text = _read(IMPL_PLAN)
+    assert "Phases 0-8. Complete." in text
+    assert "Phases 9-21." in text
+
+
+def _phase_headings(text: str, phase: int) -> list[str]:
+    return [
+        line
+        for line in text.splitlines()
+        if line.startswith("# ") and f"Phase {phase} —" in line
+    ]
+
+
+def test_implementation_plan_freezes_exactly_phases_9_to_21() -> None:
+    text = _read(IMPL_PLAN)
+    for phase in range(9, 22):
+        headings = _phase_headings(text, phase)
+        assert headings, f"no heading for Phase {phase}"
+        assert all(FROZEN in line for line in headings), headings
+
+
+def test_implementation_plan_keeps_phase_8_in_part_one() -> None:
+    text = _read(IMPL_PLAN)
+    headings = _phase_headings(text, 8)
+    assert headings, "no heading for Phase 8"
+    assert not any(FROZEN in line for line in headings), headings
+
+
+def test_implementation_plan_lists_rules_core_in_order() -> None:
+    text = _read(IMPL_PLAN)
+    positions = [text.index(row) for row in RULES_CORE_ROWS]
+    assert positions == sorted(positions)
