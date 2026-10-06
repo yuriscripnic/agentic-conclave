@@ -107,6 +107,24 @@ The domain must not import infrastructure or interface-layer code.
 
 ---
 
+# Roadmap Structure
+
+The phases below are grouped into three parts.
+
+**Part I - Deterministic core.** Phases 0-7. Complete.
+
+**Part II - Rules Core.** The R1-R10 programme plus the Bridge. This is the only
+active work. Phase 2 in `CLAUDE.md` §52 is this programme; it is not complete
+until R10 and the Bridge are done.
+
+> **PART II GATE: No Part III work resumes, and no new agentic plan is written, until R10 and the Bridge are complete.**
+
+**Part III - AI platform.** Phases 8-21. Built and tested, but **Frozen (pending Rules Core)**.
+
+> **FROZEN ADAPTER LICENCE: Part III adapters may be updated only enough to keep the existing suite green; no new agent capability is added until the Bridge.**
+
+---
+
 # 3. Phase 0 — Repository Bootstrap
 
 ## Goal
@@ -601,7 +619,96 @@ Round 1 — Arin's turn
 
 ---
 
-# 11. Phase 8 — Persistence
+# Part II — Rules Core (R1-R10)
+
+The R1-R10 programme plus the Bridge. This is the only active work. Each R-plan
+produces working, testable software on its own, ends in a runnable CLI milestone
+with tests, and is written when its turn comes. Ordering and dependencies are
+authoritative in `docs/superpowers/plans/README.md`.
+
+## R1 — Grid & space
+
+Battle map of 5-ft squares, coordinates, distance in feet (5e diagonal rule),
+occupied squares, reach, cover (+2/+5 AC), and line-of-sight validation.
+
+**Exit:** an attacker out of line of sight or behind cover resolves
+deterministically; §28's "target 100 ft away" reproduces exactly.
+
+## R2 — Ruleset & data
+
+`Ruleset` port; `data/rules/*.toml` layout and validating loader; CC-BY-4.0
+NOTICE; migrate existing weapon/class/monster constants.
+
+**Exit:** rules data loads from TOML behind the port; swapping the ruleset id is
+configuration-only.
+
+## R3 — Actions
+
+Resolvers and events for the nine inert actions; `BONUS_ACTION` and `REACTION`
+gain real members (off-hand attack, opportunity attack).
+
+**Exit:** every `ActionType` member has a resolver, events and a CLI path; no
+dead enum values.
+
+## R4 — Conditions
+
+Typed SRD condition set with an effects table applied at the correct resolution
+points; application, removal and recovery.
+
+**Exit:** every condition alters rolls, movement or actions per SRD 5.2, tested
+per condition.
+
+## R5 — Life & death
+
+0 HP to unconscious, death saving throws (3/3), damage-at-0, massive damage,
+stabilization, healing, short and long rests.
+
+**Exit:** the full down-and-recover cycle is deterministic and replayable.
+
+## R6 — Skills & contests
+
+Skill list, proficiency, passive scores, contested checks (grapple/shove).
+
+**Exit:** `CheckResolver`'s check and save paths are reachable from real actions.
+
+## R7 — Inventory
+
+Item and armor models, equip/unequip, armor to AC, consumables, loot, gold,
+carry capacity.
+
+**Exit:** inventory is playable state, not persistence-only.
+
+## R8 — Progression
+
+XP thresholds, level-up, hit dice, ASI, class features for Fighter, Rogue,
+Wizard and Cleric.
+
+**Exit:** a character levels 1 to 20 deterministically.
+
+## R9 — Spellcasting
+
+Spell model, slots, known/prepared, cantrips, spell attacks and saves, grid AoE
+templates, concentration, rituals. Phased: 9a slots and damage, 9b control and
+concentration, 9c utility and rituals, 9d full four-class SRD list.
+
+**Exit:** a Wizard and a Cleric play by SRD spell rules against the grid.
+
+## R10 — Conformance
+
+Seeded SRD conformance and property suite; rules-coverage report.
+
+**Exit:** the suite is the gate; no LLM anywhere in it.
+
+## Bridge
+
+Update `ai/` perception, context and tools to the new interfaces, then unpause
+Part III.
+
+**Exit:** the agent suite is green against grid, conditions and spells.
+
+---
+
+# 11. Phase 8 — Persistence (Part III — Frozen (pending Rules Core))
 
 ## Goal
 
@@ -641,7 +748,7 @@ If the transaction fails, the game state must not be partially updated.
 
 ---
 
-# 12. Phase 9 — Model Gateway
+# 12. Phase 9 — Model Gateway (Part III — Frozen (pending Rules Core))
 
 Only after the deterministic core is stable should the LLM layer be introduced.
 
@@ -693,7 +800,7 @@ infrastructure/llm/
 
 ---
 
-# 13. Phase 10 — Fake Model Gateway
+# 13. Phase 10 — Fake Model Gateway (Part III — Frozen (pending Rules Core))
 
 Before relying on a real LLM, implement:
 
@@ -717,7 +824,7 @@ without network access.
 
 ---
 
-# 14. Phase 11 — First Character Agent
+# 14. Phase 11 — First Character Agent (Part III — Frozen (pending Rules Core))
 
 Implement one AI character agent.
 
@@ -773,7 +880,7 @@ The application/domain decides whether it is legal.
 
 ---
 
-# 15. Phase 12 — Retry and Recovery
+# 15. Phase 12 — Retry and Recovery (Part III — Frozen (pending Rules Core))
 
 Handle:
 
@@ -800,7 +907,7 @@ game_id
 
 ---
 
-# 16. Phase 13 — GM Agent
+# 16. Phase 13 — GM Agent (Part III — Frozen (pending Rules Core))
 
 Implement the Game Master agent.
 
@@ -819,7 +926,7 @@ The GM proposes changes/actions that must pass through application/domain logic.
 
 ---
 
-# 17. Phase 14 — Multi-Agent Party
+# 17. Phase 14 — Multi-Agent Party (Part III — Frozen (pending Rules Core))
 
 Add additional character agents.
 
@@ -858,7 +965,7 @@ Agents must not automatically receive another agent's private memory/context.
 
 ---
 
-# 18. Phase 15 — Memory
+# 18. Phase 15 — Memory (Part III — Frozen (pending Rules Core))
 
 Implement:
 
@@ -878,7 +985,7 @@ Never dump the entire game history into an LLM context.
 
 ---
 
-# 19. Phase 16 — Context Engineering
+# 19. Phase 16 — Context Engineering (Part III — Frozen (pending Rules Core))
 
 Create a dedicated context builder.
 
@@ -900,7 +1007,7 @@ Do not blindly serialize the entire database/game state.
 
 ---
 
-# 20. Phase 17 — Observability
+# 20. Phase 17 — Observability (Part III — Frozen (pending Rules Core))
 
 Add structured telemetry.
 
@@ -935,7 +1042,7 @@ Use OpenTelemetry when the core implementation is stable.
 
 ---
 
-# 21. Phase 18 — Evaluation
+# 21. Phase 18 — Evaluation (Part III — Frozen (pending Rules Core))
 
 Create repeatable evaluation scenarios.
 
@@ -962,7 +1069,7 @@ Evaluate observable behavior and outcomes.
 
 ---
 
-# 22. Phase 19 — Web API
+# 22. Phase 19 — Web API (Part III — Frozen (pending Rules Core))
 
 Introduce FastAPI after the CLI/game application layer is stable.
 
@@ -982,7 +1089,7 @@ API DTOs must not become domain models.
 
 ---
 
-# 23. Phase 20 — Web UI
+# 23. Phase 20 — Web UI (Part III — Frozen (pending Rules Core))
 
 Build a Web UI after the backend contract is stable.
 
@@ -992,7 +1099,7 @@ The Web UI must consume the application/API layer rather than directly manipulat
 
 ---
 
-# 24. Phase 21 — Advanced Features
+# 24. Phase 21 — Advanced Features (Part III — Frozen (pending Rules Core))
 
 Only after the core system is reliable consider:
 

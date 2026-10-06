@@ -65,3 +65,24 @@ def test_claude_md_expands_phase_2_into_the_rules_core() -> None:
 
 def test_claude_md_states_the_freeze_licence() -> None:
     assert FREEZE in _read(CLAUDE_MD)
+
+
+IMPL_PLAN = ROOT / "docs/Agentic Conclave-Implementation Plan.md"
+
+
+def test_implementation_plan_states_the_gate() -> None:
+    assert GATE in _read(IMPL_PLAN)
+
+
+def test_implementation_plan_has_three_parts() -> None:
+    text = _read(IMPL_PLAN)
+    for heading in ("Part I", "Part II", "Part III"):
+        assert heading in text
+
+
+def test_implementation_plan_marks_part_three_frozen() -> None:
+    assert FROZEN in _read(IMPL_PLAN)
+
+
+def test_implementation_plan_states_the_freeze_licence() -> None:
+    assert FREEZE in _read(IMPL_PLAN)
