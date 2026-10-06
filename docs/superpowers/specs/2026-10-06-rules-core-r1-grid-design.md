@@ -23,7 +23,7 @@ positions to exist first.
 | Decision | Choice | Source |
 |---|---|---|
 | Spatial model | Grid coordinates, 5-ft squares | Programme spec §3 (user selection) |
-| Diagonal distance | 5-10-5 alternating | User selection |
+| Diagonal distance | 5-10-5 alternating (an optional variant in SRD 5.2, whose default is 5 ft per diagonal) | User selection, confirmed against SRD 5.2 |
 | Line of sight | Corner-to-corner, SRD style | User selection |
 | Board adoption | Optional in domain; encounter ships a map; mandatory at the Bridge | User selection |
 | Board location | Combat-scoped value object + pure geometry functions (Approach A) | This spec |
@@ -174,7 +174,9 @@ object graph directly and needs nothing.
   tests.
 - **Optional boards rotting into never-used.** Mitigated by the encounter
   config shipping a map and an integration test exercising it.
-- **5-10-5 wording unverified.** Web lookup of SRD 5.2's exact grid text failed
-  during design; 5-10-5 is the 2014 default. R2 makes the rule a
-  `data/rules/` parameter, so adopting 5.2's exact wording later is
+- **5-10-5 is an optional rule in SRD 5.2.** Confirmed during design (user's
+  web-sourced summary): SRD 5.2's default counts every diagonal as 5 ft, with
+  5-10-5 as an explicitly supported optional variant for geometric realism.
+  This ruleset deliberately ships 5-10-5 (user choice). R2 makes the rule a
+  `data/rules/` parameter, so switching to the 5.2 default later is
   configuration, not a rewrite.
