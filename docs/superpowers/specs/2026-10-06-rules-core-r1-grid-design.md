@@ -158,8 +158,6 @@ folded into R2's data work.
   (`out_of_range`, `no_line_of_sight`, `total_cover`); a seeded test where HALF
   cover's +2 flips a hit into a miss; spawn over-capacity rejected; no board =
   existing behaviour unchanged.
-- `tests/infrastructure/test_postgres_mapping.py` (extend) — board and
-  positions round-trip.
 - `tests/interfaces/test_cli.py` (extend) — the map renders during combat.
 - Full suite green; `ruff` and `mypy --strict` clean.
 
