@@ -152,3 +152,17 @@ def test_scene_view_lists_exits_as_names(tmp_path) -> None:
     view = fx.service.get_view(fx.game_id)
     assert view.scene is not None
     assert view.scene.exits == [("north", "Eastern Tower")]
+
+
+def test_view_enemies_follow_the_scene(tmp_path) -> None:
+    fx = _Fixture(tmp_path)
+
+    at_courtyard = fx.service.get_view(fx.game_id)
+    assert at_courtyard.enemies == []  # the goblin waits in the tower
+
+    fx.service.travel(
+        TravelCommand(game_id=fx.game_id, actor_id=fx.hero, direction="north")
+    )
+
+    at_tower = fx.service.get_view(fx.game_id)
+    assert [enemy.name for enemy in at_tower.enemies] == ["Goblin Scout"]

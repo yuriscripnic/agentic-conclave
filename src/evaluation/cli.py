@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -70,7 +71,10 @@ def main(argv: list[str] | None = None, console: Console | None = None) -> int:
     )
     parser.add_argument("--db", choices=("memory", "postgres"), default="memory")
     parser.add_argument("--out-dir", type=Path, default=Path("eval-results"))
-    args = parser.parse_args(argv if argv is not None else [])
+    # argv=None means "read the process arguments" so the console-script entry
+    # point (`conclave-eval = "evaluation.cli:main"`) honors its flags; callers
+    # pass an explicit list (often []) to stay isolated from sys.argv.
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     console = console or Console()
     env_var = PROVIDER_API_KEY_ENV.get(args.provider) if args.provider != "fake" else None

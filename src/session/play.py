@@ -162,9 +162,15 @@ def apply_input(session: GameSession, raw: str) -> InputOutcome:
     target_id = _resolve_target(view, argument)
     if target_id is None:
         return InputOutcome(kind="no_target", argument=argument)
-    actor_id = view.combat.active_actor_id if view.combat else None
-    if actor_id is None:
-        return InputOutcome(kind="attack", argument=argument)
+    combat = view.combat
+    if combat is None or combat.active_actor_id is None:
+        # Honest feedback instead of a silent no-op (CLAUDE.md §28).
+        return InputOutcome(
+            kind="error",
+            argument=argument,
+            error="No combat is active — there is nothing to attack.",
+        )
+    actor_id = combat.active_actor_id
     try:
         report = session.game_service.submit_action(
             SubmitActionCommand(

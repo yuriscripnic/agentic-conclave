@@ -101,9 +101,11 @@ def main(
         default=None,
         help="location graph TOML (name under config/, e.g. world.toml) for travel scenes",
     )
-    # argv=None means "no CLI arguments" so library/test callers are isolated
-    # from the host process's sys.argv; the __main__ block passes it explicitly.
-    args = parser.parse_args(argv if argv is not None else [])
+    # argv=None means "read the process arguments" so the console-script entry
+    # point (`conclave = "interfaces.cli.app:main"`) honors its flags; library
+    # and test callers pass an explicit list (often []) to stay isolated from
+    # the host process's sys.argv.
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
     console = console or Console()
     configure_telemetry_logging(debug=args.debug)
@@ -238,4 +240,4 @@ def _render_scene_tick(console: Console, tick: SceneTick) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

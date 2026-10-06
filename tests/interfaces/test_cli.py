@@ -1,5 +1,6 @@
 # tests/interfaces/test_cli.py
 import json
+import sys
 from io import StringIO
 
 import pytest
@@ -35,7 +36,7 @@ def test_parse_input_variants() -> None:
 
 def test_main_quit_leaves_a_created_game() -> None:
     console, buffer = _console()
-    code = main(console=console, input_fn=_scripted("/quit"))
+    code = main(argv=[], console=console, input_fn=_scripted("/quit"))
     assert code == 0
     assert "Party" in buffer.getvalue()
 
@@ -47,7 +48,7 @@ def test_main_full_fight_reaches_a_winner() -> None:
         + ["attack goblin skulker"] * 30
         + ["attack orc brute"] * 60
     )
-    code = main(console=console, input_fn=_scripted(*lines))
+    code = main(argv=[], console=console, input_fn=_scripted(*lines))
     assert code == 0
     assert "wins the combat" in buffer.getvalue()
 
@@ -131,6 +132,7 @@ def test_main_all_enemy_names_resolve(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     console, buffer = _console()
     code = main(
+        argv=[],
         console=console,
         input_fn=_scripted(
             "attack goblin scout", "attack goblin skulker", "attack orc brute", "/quit"
@@ -265,3 +267,20 @@ def test_main_without_debug_stays_silent(tmp_path, monkeypatch: pytest.MonkeyPat
 
     assert code == 0
     assert log_file.read_text(encoding="utf-8") == ""
+
+
+def test_main_defaults_to_sys_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The console script calls ``main()`` with no argv; flags must still parse."""
+    monkeypatch.setattr(sys, "argv", ["conclave", "--definitely-not-a-flag"])
+    console, _buffer = _console()
+
+    with pytest.raises(SystemExit):
+        main(console=console, input_fn=_scripted())
+
+
+def test_main_explicit_argv_ignores_sys_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit argv still wins, so library/test callers stay isolated."""
+    monkeypatch.setattr(sys, "argv", ["conclave", "--definitely-not-a-flag"])
+    console, _buffer = _console()
+
+    assert main(argv=[], console=console, input_fn=_scripted("/quit")) == 0

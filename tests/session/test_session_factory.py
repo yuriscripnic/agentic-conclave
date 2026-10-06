@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from session import SessionConfig, build_session, open_session
+from session import SessionConfig, apply_input, build_session, open_session
 
 
 def test_build_session_memory_wires_the_full_fight() -> None:
@@ -117,6 +117,26 @@ def test_build_session_with_world_places_both_sides_and_does_not_start_combat() 
     assert view.scene.name == "Ruined Courtyard"
     assert view.combat is None
     assert view.status == "created"
-    # enemy placed at the tower
-    enemies_hp = [member for member in view.enemies]
-    assert enemies_hp  # enemy exists but no combat until arrival
+    # enemies wait at the tower, so the courtyard scene shows none
+    assert view.enemies == []
+
+    # arriving proves both sides were placed (and opens combat deterministically)
+    outcome = apply_input(session, "go north")
+    assert outcome.turn_report is not None
+    assert [enemy.name for enemy in outcome.turn_report.view.enemies] == [
+        "Goblin Scout",
+        "Goblin Skulker",
+        "Orc Brute",
+    ]
+
+
+def test_postgres_world_session_can_travel(postgres_url, monkeypatch) -> None:
+    """Placements are game state: a Postgres reload must not lose them (§21)."""
+    monkeypatch.setenv("DATABASE_URL", postgres_url)
+    session = build_session(
+        SessionConfig(seed=42, db="postgres", world_path=Path("world.toml"))
+    )
+
+    outcome = apply_input(session, "go north")
+
+    assert outcome.kind == "travel", outcome.error

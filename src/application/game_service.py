@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Mapping
 
 from application.commands import (
     AddCharacterCommand,
@@ -122,6 +123,19 @@ class GameService:
             game.add_party_member(character)
         self._persist(game)
         return character.id
+
+    def place_characters(
+        self, game_id: GameId, placements: Mapping[CharacterId, LocationId]
+    ) -> None:
+        """Place characters on the world map and persist.
+
+        Placement is game state: it must go through the service so every
+        repository (not just the in-memory one) sees it (CLAUDE.md §2.2, §62).
+        """
+        game = self._game(game_id)
+        for character_id, location_id in placements.items():
+            game.place(character_id, location_id)
+        self._persist(game)
 
     def _build_character(self, command: AddCharacterCommand) -> Character:
         character_type = _CHARACTER_TYPES.get(command.character_type)
@@ -369,22 +383,42 @@ class GameService:
             party=[
                 self._character_view(game.characters[cid]) for cid in game.party_ids
             ],
-            enemies=[
-                self._character_view(game.characters[cid]) for cid in game.enemy_ids
-            ],
+            enemies=self._enemy_views(game, combat),
             combat=combat_view,
             scene=self._scene_view(game),
         )
 
-    def _scene_view(self, game: Game) -> SceneView | None:
+    def _enemy_views(self, game: Game, combat: Combat | None) -> list[CharacterView]:
+        """Enemies visible to the viewer.
+
+        Without a world (or during combat) every enemy is shown; otherwise the
+        panel follows the scene, so enemies waiting in another location are not
+        presented as present (they cannot be attacked there).
+        """
+        enemy_ids = list(game.enemy_ids)
+        if self._world is not None and combat is None:
+            here = self._hero_location(game)
+            enemy_ids = [cid for cid in enemy_ids if game.location_of(cid) == here]
+        return [self._character_view(game.characters[cid]) for cid in enemy_ids]
+
+    def _hero_location(self, game: Game) -> LocationId | None:
         if self._world is None:
             return None
-        hero = game.living_party_ids[0] if game.living_party_ids else (
-            game.party_ids[0] if game.party_ids else None
+        hero = (
+            game.living_party_ids[0]
+            if game.living_party_ids
+            else (game.party_ids[0] if game.party_ids else None)
         )
         if hero is None:
             return None
-        here = game.location_of(hero) or self._world.start_id
+        return game.location_of(hero) or self._world.start_id
+
+    def _scene_view(self, game: Game) -> SceneView | None:
+        if self._world is None:
+            return None
+        here = self._hero_location(game)
+        if here is None:
+            return None
         location = self._world.get(here)
         return SceneView(
             location_id=str(location.id),

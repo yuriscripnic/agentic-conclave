@@ -352,13 +352,14 @@ def build_session(config: SessionConfig) -> GameSession:
         service.start_combat(game_id)
     else:
         # Phase 21: place both sides; combat opens deterministically when a
-        # party member arrives among enemies (TravelService chain).
+        # party member arrives among enemies (TravelService chain). Placement
+        # is persisted through the service, not mutated in place, so non-memory
+        # repositories keep it (CLAUDE.md §2.2).
         game = service._game(game_id)
-        for cid in game.party_ids:
-            game.place(cid, world.start_id)
+        placements = {cid: world.start_id for cid in game.party_ids}
         if world.enemies_at is not None:
-            for cid in game.enemy_ids:
-                game.place(cid, world.enemies_at)
+            placements |= {cid: world.enemies_at for cid in game.enemy_ids}
+        service.place_characters(game_id, placements)
     scene_service: SceneService | None = None
     if world is not None and turn_service is not None:
         assert agent_runtime is not None and agent_catalog is not None

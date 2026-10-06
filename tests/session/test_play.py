@@ -118,3 +118,27 @@ def test_go_without_world_reports_error() -> None:
     session = build_session(SessionConfig(seed=42))
     outcome = apply_input(session, "go north")
     assert outcome.kind == "error"
+
+
+_COLOCATED_WORLD = """
+[world]
+start = "courtyard"
+enemies_at = "courtyard"
+
+[[locations]]
+id = "courtyard"
+name = "Ruined Courtyard"
+description = "Enemies wait here but no fight has started."
+"""
+
+
+def test_attack_outside_combat_reports_feedback(tmp_path) -> None:
+    """A resolvable target with no active combat must not be a silent no-op (§28)."""
+    world = tmp_path / "world.toml"
+    world.write_text(_COLOCATED_WORLD)
+    session = build_session(SessionConfig(seed=42, world_path=world))
+
+    outcome = apply_input(session, "attack Goblin Scout")
+
+    assert outcome.kind == "error"
+    assert "combat" in (outcome.error or "").lower()

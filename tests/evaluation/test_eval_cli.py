@@ -2,8 +2,10 @@
 """conclave-eval CLI tests: exit codes, artifacts, fast-fail (spec §4.6)."""
 
 import json
+import sys
 from io import StringIO
 
+import pytest
 from pytest import MonkeyPatch
 from rich.console import Console
 
@@ -105,3 +107,12 @@ def test_eval_cli_opencodego_provider_choice_is_recognized(
 
     assert code == 2
     assert "unknown scenario" in buffer.getvalue()
+
+
+def test_eval_cli_defaults_to_sys_argv(monkeypatch: MonkeyPatch) -> None:
+    """The console script calls ``main()`` with no argv; flags must still parse."""
+    monkeypatch.setattr(sys, "argv", ["conclave-eval", "--not-a-flag"])
+    console, _buffer = _console()
+
+    with pytest.raises(SystemExit):
+        main(console=console)
