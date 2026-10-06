@@ -86,3 +86,12 @@ def test_implementation_plan_marks_part_three_frozen() -> None:
 
 def test_implementation_plan_states_the_freeze_licence() -> None:
     assert FREEZE in _read(IMPL_PLAN)
+
+
+ROOT_README = ROOT / "README.md"
+
+
+def test_root_readme_points_at_the_roadmap() -> None:
+    text = _read(ROOT_README)
+    assert "docs/superpowers/plans/README.md" in text
+    assert "Rules Core" in text

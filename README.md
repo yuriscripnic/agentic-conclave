@@ -3,6 +3,14 @@
 An AI-powered multi-agent D&D RPG built on a deterministic rules engine:
 LLMs propose. The domain decides. The game engine executes. Events record what happened.
 
+## Project status
+
+The **Rules Core** programme — grid, actions, conditions, death, spells and the
+rest of the deterministic engine — is the current focus. AI-platform work (agents,
+GM, memory, telemetry, evaluation, API, web UI) is built and tested but frozen
+until it is complete. See the roadmap in
+[`docs/superpowers/plans/README.md`](docs/superpowers/plans/README.md).
+
 ## Setup
 
 ```bash
