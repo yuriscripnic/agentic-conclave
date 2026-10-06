@@ -136,10 +136,15 @@ must not compute geometry — it renders what the view carries.
 
 ## 7. Persistence
 
-The Postgres mapping (`src/infrastructure/persistence/postgres/mapping.py`)
-must serialize and restore `board` and `positions` inside the existing JSONB
-state document, or a saved game loses its map. In-memory storage holds the
-object graph directly and needs nothing.
+Correction after grounding: combat is not persisted today at all. `GameService`
+holds `Combat` in an in-memory dict (`self._combats`), and
+`game_to_row`/`_game_from_row` serialize no combat state — only characters,
+party/enemy ids, status and placements. So the board and positions ride along
+with `Combat` and are equally transient; **R1 needs no persistence change**.
+
+Persisting combat state (board included) is a pre-existing gap in the
+deterministic core, not R1 work; it should be its own small plan after R1 or
+folded into R2's data work.
 
 ## 8. Testing
 
