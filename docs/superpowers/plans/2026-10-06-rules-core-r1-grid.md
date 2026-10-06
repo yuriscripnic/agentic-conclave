@@ -224,7 +224,7 @@ class Board:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/domain/test_square.py tests/domain/test_board.py -q`
-Expected: 7 passed.
+Expected: 8 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -311,7 +311,7 @@ def distance_ft(a: Square, b: Square) -> int:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `.venv/bin/python -m pytest tests/domain/test_geometry.py -q`
-Expected: 9 passed.
+Expected: 8 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -451,7 +451,7 @@ def line_of_sight(board: Board, a: Square, b: Square) -> bool:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/domain/test_geometry.py -q`
-Expected: 15 passed (9 from Task 2 + 6 new).
+Expected: 14 passed (8 from Task 2 + 6 new).
 
 - [ ] **Step 5: Commit**
 
@@ -552,7 +552,7 @@ from domain.space.board import Board, CoverLevel, higher_cover
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/domain/test_geometry.py -q`
-Expected: 20 passed.
+Expected: 19 passed.
 
 - [ ] **Step 5: Commit**
 
