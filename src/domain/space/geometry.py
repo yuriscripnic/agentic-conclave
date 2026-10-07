@@ -61,10 +61,28 @@ def _cell_blocks(cell: Square, p1: _Point, p2: _Point) -> bool:
     if t0 > t1:
         return False
     if t0 == t1:
-        point = (p1[0] + t0 * dx, p1[1] + t0 * dy)
-        corner_set = {(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)}
-        return not any(point == corner for corner in corner_set)
+        return not _touches_a_corner(cell, p1, p2)
     return True
+
+
+def _touches_a_corner(cell: Square, p1: _Point, p2: _Point) -> bool:
+    """Whether a single-point contact is a corner graze.
+
+    Decided with exact integer arithmetic: corner coordinates and the segment
+    endpoints are integer-valued, so the cross product is exact. Reconstructing
+    the contact point as ``p1 + t0 * (p2 - p1)`` is not: for a non-dyadic
+    parameter such as t = 15/22 the reconstruction is off by ~1 ulp and the
+    graze is misread as a block.
+    """
+    px, py = p1
+    dx, dy = p2[0] - px, p2[1] - py
+    for corner in _corners(cell):
+        cx, cy = corner
+        if dx * (cy - py) - dy * (cx - px) != 0:
+            continue
+        if min(px, p2[0]) <= cx <= max(px, p2[0]) and min(py, p2[1]) <= cy <= max(py, p2[1]):
+            return True
+    return False
 
 
 def _blocked_segment_count(board: Board, a: Square, b: Square) -> int:

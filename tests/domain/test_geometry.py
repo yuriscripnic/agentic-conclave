@@ -58,3 +58,11 @@ def test_solid_wall_block_between_diagonals_blocks_sight() -> None:
 
 def test_a_wall_nowhere_near_the_line_does_not_block() -> None:
     assert line_of_sight(_board({(4, 4)}), Square(0, 0), Square(1, 1))
+
+
+def test_non_dyadic_corner_graze_is_clear() -> None:
+    # Segment (0,0)->(22,22) passes exactly through the corner (15,15) of wall
+    # (15,15) at t = 15/22 — a non-dyadic parameter, so float reconstruction
+    # would misclassify it as blocked.
+    board = Board(width=23, height=23, walls=frozenset({Square(15, 15)}))
+    assert line_of_sight(board, Square(0, 0), Square(22, 22))
