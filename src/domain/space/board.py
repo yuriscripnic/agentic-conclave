@@ -60,3 +60,9 @@ class Board:
 
     def cover_at(self, square: Square) -> CoverLevel:
         return self.cover.get(square, CoverLevel.NONE)
+
+
+@dataclass(frozen=True)
+class Spawns:
+    party: tuple[Square, ...]
+    enemies: tuple[Square, ...]

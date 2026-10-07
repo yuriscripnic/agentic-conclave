@@ -8,11 +8,13 @@ from domain.character.weapon import Weapon
 from domain.combat.engine import CombatEngine
 from domain.combat.policy import SimpleMeleeEnemyPolicy
 from domain.combat.state import Combat, CombatStatus, InitiativeEntry, roll_initiative
-from domain.common.errors import AgentDecisionFailedError
+from domain.common.errors import AgentDecisionFailedError, ValidationError
 from domain.common.ids import CampaignId, CharacterId, GameId
 from domain.events.collector import EventCollector
 from domain.rules.actions import ActionEconomy, AttackProposal
 from domain.rules.dice import DiceRoller
+from domain.space.board import Board, Spawns
+from domain.space.square import Square
 from domain.world.game import Game
 
 
@@ -91,11 +93,16 @@ def _game(*members: Character) -> Game:
 
 
 def _start(
-    dice: DiceRoller, game: Game
+    dice: DiceRoller,
+    game: Game,
+    board: Board | None = None,
+    spawns: Spawns | None = None,
 ) -> tuple[CombatEngine, Combat, EventCollector]:
     engine = CombatEngine(dice)
     collector = EventCollector(game_id=game.game_id)
-    combat = engine.start(game, (*game.party_ids, *game.enemy_ids), collector)
+    combat = engine.start(
+        game, (*game.party_ids, *game.enemy_ids), collector, board=board, spawns=spawns
+    )
     return engine, combat, collector
 
 
@@ -421,3 +428,49 @@ def test_initiative_ties_preserve_participant_order() -> None:
 
     assert [entry.character_id for entry in entries] == order
     assert entries[0].total == entries[1].total == 8
+
+
+def _spawns() -> Spawns:
+    return Spawns(
+        party=(Square(0, 0), Square(0, 1), Square(0, 2)),
+        enemies=(Square(4, 0), Square(4, 1), Square(4, 2)),
+    )
+
+
+def _board() -> Board:
+    return Board(width=5, height=5)
+
+
+def test_start_places_participants_on_spawn_squares_in_list_order() -> None:
+    game = _game(_fighter(), _goblin())
+    _, combat, _ = _start(DiceRoller(seed=1), game, board=_board(), spawns=_spawns())
+    assert combat.positions[game.party_ids[0]] == Square(0, 0)
+    assert combat.positions[game.enemy_ids[0]] == Square(4, 0)
+
+
+def test_start_without_a_board_leaves_positions_empty() -> None:
+    game = _game(_fighter(), _goblin())
+    _, combat, _ = _start(DiceRoller(seed=1), game)
+    assert combat.positions == {}
+    assert combat.board is None
+
+
+def test_more_participants_than_spawns_is_rejected() -> None:
+    game = _game(_fighter("A"), _fighter("B"), _goblin())
+    spawns = Spawns(party=(Square(0, 0),), enemies=(Square(4, 0),))
+    with pytest.raises(ValidationError):
+        _start(DiceRoller(seed=1), game, board=_board(), spawns=spawns)
+
+
+def test_duplicate_spawn_squares_are_rejected() -> None:
+    game = _game(_fighter(), _goblin())
+    spawns = Spawns(party=(Square(0, 0),), enemies=(Square(0, 0),))
+    with pytest.raises(ValidationError):
+        _start(DiceRoller(seed=1), game, board=_board(), spawns=spawns)
+
+
+def test_spawn_on_a_wall_is_rejected() -> None:
+    game = _game(_fighter(), _goblin())
+    board = Board(width=5, height=5, walls=frozenset({Square(4, 0)}))
+    with pytest.raises(ValidationError):
+        _start(DiceRoller(seed=1), game, board=board, spawns=_spawns())

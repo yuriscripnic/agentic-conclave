@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from domain.combat.state import Combat, CombatStatus, roll_initiative
+from domain.common.errors import ValidationError
 from domain.common.ids import CharacterId
 from domain.events.collector import EventCollector
 from domain.events.events import (
@@ -28,7 +29,53 @@ from domain.rules.actions import (
 from domain.rules.checks import CheckResolver
 from domain.rules.dice import DiceRoller
 from domain.rules.progression import proficiency_bonus
+from domain.space.board import Board, Spawns
+from domain.space.square import Square
 from domain.world.game import Game
+
+
+def _positions_for(
+    game: Game,
+    board: Board | None,
+    spawns: Spawns | None,
+    participant_ids: Sequence[CharacterId],
+) -> dict[CharacterId, Square]:
+    """Positions for a fight: empty without a board, assigned from spawns otherwise."""
+    if board is None:
+        return {}
+    if spawns is None:
+        raise ValidationError("a board requires spawn squares")
+    return _assign_positions(game, board, spawns, participant_ids)
+
+
+def _assign_positions(
+    game: Game,
+    board: Board,
+    spawns: Spawns,
+    participant_ids: Sequence[CharacterId],
+) -> dict[CharacterId, Square]:
+    """Spawn squares are content: assign in list order, reject any gap or clash.
+
+    Capacity is checked against the participants actually taking part in the
+    fight (spec §4), not the whole game roster: a campaign may hold members who
+    are absent from this encounter.
+    """
+    participants = set(participant_ids)
+    party = [cid for cid in game.party_ids if cid in participants]
+    enemies = [cid for cid in game.enemy_ids if cid in participants]
+    if len(party) > len(spawns.party) or len(enemies) > len(spawns.enemies):
+        raise ValidationError("not enough spawn squares for every participant")
+    positions: dict[CharacterId, Square] = {}
+    for character_id, square in zip(party, spawns.party, strict=False):
+        positions[character_id] = square
+    for character_id, square in zip(enemies, spawns.enemies, strict=False):
+        positions[character_id] = square
+    if len(set(positions.values())) != len(positions):
+        raise ValidationError("spawn squares must be distinct")
+    for square in positions.values():
+        if not board.in_bounds(square) or board.is_wall(square):
+            raise ValidationError(f"spawn square {square} is not a standing square")
+    return positions
 
 
 class CombatEngine:
@@ -41,6 +88,8 @@ class CombatEngine:
         game: Game,
         participant_ids: Sequence[CharacterId],
         collector: EventCollector,
+        board: Board | None = None,
+        spawns: Spawns | None = None,
     ) -> Combat:
         entries = roll_initiative(self._dice, game.characters, participant_ids)
         for entry in entries:
@@ -51,6 +100,8 @@ class CombatEngine:
         combat = Combat(
             entries=entries,
             economy=ActionEconomy(movement_budget_ft=game.characters[first].speed_ft),
+            board=board,
+            positions=_positions_for(game, board, spawns, participant_ids),
         )
         collector.record(
             CombatStarted(

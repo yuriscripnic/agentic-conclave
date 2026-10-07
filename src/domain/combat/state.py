@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from domain.character.abilities import AbilityType
@@ -12,6 +12,8 @@ from domain.common.errors import ValidationError
 from domain.common.ids import CharacterId
 from domain.rules.actions import ActionEconomy
 from domain.rules.dice import DiceRoller
+from domain.space.board import Board
+from domain.space.square import Square
 
 
 class CombatStatus(StrEnum):
@@ -60,6 +62,8 @@ class Combat:
     round_number: int = 1
     turn_index: int = 0
     status: CombatStatus = CombatStatus.ACTIVE
+    board: Board | None = None
+    positions: dict[CharacterId, Square] = field(default_factory=dict)
 
     def active_actor(self) -> CharacterId:
         return self.entries[self.turn_index].character_id
