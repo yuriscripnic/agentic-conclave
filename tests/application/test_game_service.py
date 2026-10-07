@@ -274,3 +274,26 @@ def test_get_view_omits_the_map_without_a_board() -> None:
 
     assert view.combat is not None
     assert view.combat.map is None
+
+
+def _battle_map() -> BattleMap:
+    return BattleMap(
+        board=Board(width=10, height=10),
+        spawns=Spawns(party=(Square(0, 0),), enemies=(Square(4, 0),)),
+    )
+
+
+def test_start_combat_places_combatants_on_the_encounter_map() -> None:
+    event_store = InMemoryEventRepository()
+    service = GameService(
+        InMemoryGameRepository(event_store), event_store, battle_map=_battle_map()
+    )
+    game_id = service.create_game(CreateGameCommand(seed=1))
+    service.add_character(game_id, _fighter_command())
+    service.add_character(game_id, _goblin_command())
+
+    view = service.start_combat(game_id)
+
+    assert view.combat is not None
+    assert view.combat.map is not None
+    assert view.combat.map.positions, "combatants must start on spawn squares"

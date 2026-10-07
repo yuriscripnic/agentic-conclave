@@ -80,42 +80,52 @@ def test_full_adventure_talk_travel_combat_talk() -> None:
     # Beat 3: the scene loop now waits on combat (pause rule)
     assert scene.tick(session.game_id).kind == "combat_wait"
 
-    # Beat 4: the fight resolves through the normal combat drivers
-    guard = 0
-    while advance(session) is not None:
-        guard += 1
-        if guard > 400:
-            pytest.fail("combat did not resolve within the turn guard")
-    view = session.game_service.get_view(session.game_id)
-    if view.status != "ended":
-        # With fake combat scripts the game ends on the enemy/party chain;
-        # some seeds leave the human alive — act for them until the fight ends.
-        from application.commands import SubmitActionCommand
+    # Beat 4: the fight resolves through the normal combat drivers. Agents and
+    # enemies act via advance(); when it is the human's turn the test acts for
+    # them — the nearest living enemy the hero can actually reach (R1 grid:
+    # attacks have range and there is no movement resolver until R3).
+    from application.commands import SubmitActionCommand
+    from domain.space.geometry import distance_ft
+    from domain.space.square import Square
 
-        for _attempt in range(400):
-            view = session.game_service.get_view(session.game_id)
-            if view.status == "ended":
-                break
-            combat = view.combat
-            if combat is None or combat.status != "active":
-                break
-            hero = next(
-                member
-                for member in view.party
-                if member.id == combat.active_actor_id
+    for _attempt in range(400):
+        if advance(session) is not None:
+            continue
+        view = session.game_service.get_view(session.game_id)
+        if view.status == "ended":
+            break
+        combat = view.combat
+        if combat is None or combat.status != "active":
+            break
+        hero_id = combat.active_actor_id
+        assert hero_id is not None
+        positions = combat.map.positions if combat.map else {}
+        hero_square = positions.get(hero_id)
+        target = next(
+            (
+                e.id
+                for e in view.enemies
+                if not e.is_defeated
+                and hero_square is not None
+                and (sq := positions.get(e.id)) is not None
+                and distance_ft(Square(*hero_square), Square(*sq)) <= 5
+            ),
+            None,
+        )
+        assert target is not None, (
+            f"the human at {hero_square} has no living enemy in reach"
+        )
+        report = session.game_service.submit_action(
+            SubmitActionCommand(
+                game_id=session.game_id,
+                actor_id=_cid(hero_id),
+                action_type="attack",
+                target_id=_cid(target),
             )
-            target = next(e.id for e in view.enemies if not e.is_defeated)
-            report = session.game_service.submit_action(
-                SubmitActionCommand(
-                    game_id=session.game_id,
-                    actor_id=_cid(hero.id),
-                    action_type="attack",
-                    target_id=_cid(target),
-                )
-            )
-            assert report.accepted, report.reason
-        else:
-            pytest.fail("combat did not end while acting for the human")
+        )
+        assert report.accepted, report.reason
+    else:
+        pytest.fail("combat did not end within the turn guard")
 
     # Beat 5: post-combat the scene loop is usable again
     tick = scene.tick(session.game_id)

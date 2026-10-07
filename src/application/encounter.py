@@ -97,3 +97,14 @@ def load_encounter(path: str | Path) -> tuple[AddCharacterCommand, ...]:
         names.add(command.name.lower())
         commands.append(command)
     return tuple(commands)
+
+
+def encounter_map_name(path: str | Path) -> str | None:
+    """The encounter's battle-map name, or None when the encounter is ungridded."""
+    data = tomllib.loads(Path(path).read_text(encoding="utf-8"))
+    value = data.get("map")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise EncounterError("encounter 'map' must be a non-empty string")
+    return value

@@ -1,9 +1,14 @@
 """The goblin-skirmish scenario (spec §4.4.1): two strikes, two goblins down.
 
-Ground truth at seed 42 (offline scripted gateways): both steps are accepted,
-there are zero rejections, and both goblins are defeated. The original draft
-repeated "attack goblin scout", which fails its own no-rejections check - the
-scout dies during step 2's pre-drain because the AI party attacks it too.
+Ground truth at seed 42 (offline scripted gateways): both strikes are
+accepted, there are zero rejections, and both goblins are defeated. The
+original draft repeated "attack goblin scout", which fails its own
+no-rejections check - the scout dies during step 2's pre-drain because the
+AI party attacks it too. Under the R1 grid the strikes are range-bound and
+the fight outlives two steps, so the human keeps striking the orc (the last
+foe standing on the shipped map) until the engine ends the combat; at other
+seeds a strike can still land on a foe the AI party dropped first, which
+fails no-rejections by design of static human scripts.
 """
 
 from __future__ import annotations
@@ -41,7 +46,11 @@ GOBLIN_SKIRMISH = Scenario(
         "every proposed action must pass rules validation and both goblins fall."
     ),
     seed=42,
-    steps=("attack goblin scout", "attack goblin skulker"),
+    # R1 grid: attacks are range-bound, so the two-strike script no longer
+    # outlives the fight — the human keeps striking the orc (the last foe
+    # standing on the shipped map) until the engine ends the combat.
+    steps=("attack goblin scout", "attack goblin skulker")
+    + ("attack orc brute",) * 10,
     repeat_runs=2,
     checks=(
         ScenarioCheck(

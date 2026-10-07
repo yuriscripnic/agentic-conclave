@@ -1,6 +1,8 @@
 # The MVP-0 encounter (specs/2026-09-06-multi-agent-party-design.md §3.3).
 # Loaded in every CLI mode — the fight is game content, not agent configuration.
 
+map = "eastern_tower"
+
 [[enemies]]
 name = "Goblin Scout"
 level = 1

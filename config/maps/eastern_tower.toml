@@ -1,0 +1,27 @@
+[map]
+name = "Eastern Tower"
+width = 10
+height = 10
+
+walls = [[4, 0], [5, 0], [6, 0], [0, 5], [9, 5]]
+
+[[cover]]
+square = [3, 4]
+level = "half"
+
+[[cover]]
+square = [6, 4]
+level = "three_quarters"
+
+[spawns.party]
+squares = [[1, 1], [1, 2], [2, 1], [3, 1]]
+
+[spawns.enemies]
+# Static-melee shape (no movement resolver until R3): the orc spawn is the
+# melee hub adjacent to every party spawn — while the orc (15 hp) outlives
+# the goblins, every combatant always has a living foe in reach, so an
+# attack-only fight can never deadlock. Each goblin sits adjacent to the
+# first party spawn (so a lone hero's scripted strikes land and a lone-hero
+# fight still ends) and to a second party member (so the AI party drops it
+# fast, keeping the orc last to die).
+squares = [[0, 1], [2, 0], [2, 2]]

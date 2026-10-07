@@ -1,4 +1,7 @@
-"""load_world_catalog: toml → WorldMap. Application owns I/O; domain types stay pure."""
+"""load_world_catalog: toml → WorldMap; load_battle_map: toml → BattleMap.
+
+Application owns I/O; domain types stay pure.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +9,10 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from domain.common.errors import ValidationError
 from domain.common.ids import LocationId
-from domain.space.board import Board, Spawns
+from domain.space.board import Board, CoverLevel, Spawns
+from domain.space.square import Square
 from domain.world.locations import Location, LocationExit, WorldMap
 
 
@@ -21,6 +26,82 @@ class BattleMap:
 
     board: Board
     spawns: Spawns
+
+
+class InvalidMapConfigError(ValueError):
+    pass
+
+
+def _map_int(table: dict[str, object], key: str, where: str) -> int:
+    value = table.get(key)
+    if not isinstance(value, int) or value < 1:
+        raise InvalidMapConfigError(f"{where} needs a positive integer '{key}'")
+    return value
+
+
+def _map_square(value: object, where: str) -> tuple[int, int]:
+    if not isinstance(value, list) or len(value) != 2 or not all(
+        isinstance(item, int) for item in value
+    ):
+        raise InvalidMapConfigError(f"{where} needs a [x, y] square, got {value!r}")
+    return (value[0], value[1])
+
+
+def _map_squares(value: object, where: str) -> list[tuple[int, int]]:
+    if not isinstance(value, list):
+        raise InvalidMapConfigError(f"{where} needs a list of [x, y] squares")
+    return [_map_square(entry, where) for entry in value]
+
+
+def load_battle_map(path: Path) -> BattleMap:
+    """toml -> BattleMap; every malformation fails loudly here, never mid-combat."""
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    table = data.get("map")
+    if not isinstance(table, dict):
+        raise InvalidMapConfigError(f"{path.name} needs a [map] table")
+    width = _map_int(table, "width", path.name)
+    height = _map_int(table, "height", path.name)
+    walls = frozenset(
+        Square(x, y) for x, y in _map_squares(table.get("walls", []), path.name)
+    )
+    cover: dict[Square, CoverLevel] = {}
+    for entry in data.get("cover", []):
+        if not isinstance(entry, dict):
+            raise InvalidMapConfigError(f"{path.name}: each [[cover]] must be a table")
+        x, y = _map_square(entry.get("square"), path.name)
+        try:
+            level = CoverLevel(str(entry.get("level")))
+        except ValueError as error:
+            raise InvalidMapConfigError(
+                f"{path.name}: unknown cover level {entry.get('level')!r}"
+            ) from error
+        if Square(x, y) in cover:
+            raise InvalidMapConfigError(f"{path.name}: duplicate cover square ({x}, {y})")
+        cover[Square(x, y)] = level
+    spawns_table = data.get("spawns")
+    if not isinstance(spawns_table, dict):
+        raise InvalidMapConfigError(f"{path.name} needs a [spawns] table")
+    party_table = spawns_table.get("party")
+    enemies_table = spawns_table.get("enemies")
+    if not isinstance(party_table, dict) or not isinstance(enemies_table, dict):
+        raise InvalidMapConfigError(f"{path.name}: [spawns] needs party and enemies")
+    try:
+        board = Board(width=width, height=height, walls=walls, cover=cover)
+    except ValidationError as error:
+        raise InvalidMapConfigError(f"{path.name}: {error}") from error
+    return BattleMap(
+        board=board,
+        spawns=Spawns(
+            party=tuple(
+                Square(x, y)
+                for x, y in _map_squares(party_table.get("squares", []), path.name)
+            ),
+            enemies=tuple(
+                Square(x, y)
+                for x, y in _map_squares(enemies_table.get("squares", []), path.name)
+            ),
+        ),
+    )
 
 
 def _require(world: dict[str, object], key: str) -> str:

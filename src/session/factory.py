@@ -23,7 +23,7 @@ from application.agents.fake_script import ScriptedAgentGateway, ScriptedGmGatew
 from application.agents.party_board import PartyMessageBoard
 from application.agents.profiles import load_agent_profiles
 from application.commands import AddCharacterCommand, CreateGameCommand, WeaponSpec
-from application.encounter import load_encounter
+from application.encounter import encounter_map_name, load_encounter
 from application.game_service import GameService
 from application.gm.conversation import GmConversation
 from application.gm.director import GmDirector, GmResult
@@ -35,8 +35,11 @@ from application.telemetry import (
     TelemetrySink,
     new_correlation_id,
 )
-from application.world_catalog import load_world_catalog
+from application.views import CharacterView, GameView
+from application.world_catalog import BattleMap, load_battle_map, load_world_catalog
 from domain.common.ids import GameId
+from domain.space.geometry import distance_ft
+from domain.space.square import Square
 from domain.world.locations import WorldMap
 from infrastructure.events.in_memory import InMemoryEventRepository
 from infrastructure.llm import create_embedding_gateway, create_gateway
@@ -85,13 +88,19 @@ class GameSession:
 
 
 def build_service(
-    db: str = "memory", *, world: WorldMap | None = None
+    db: str = "memory",
+    *,
+    world: WorldMap | None = None,
+    battle_map: BattleMap | None = None,
 ) -> GameService:
     """Wire the application layer onto a persistence backend (spec §8)."""
     if db == "memory":
         event_store = InMemoryEventRepository()
         return GameService(
-            InMemoryGameRepository(event_store), event_store, world=world
+            InMemoryGameRepository(event_store),
+            event_store,
+            world=world,
+            battle_map=battle_map,
         )
     if db == "postgres":
         database_url = os.environ.get("DATABASE_URL")
@@ -106,6 +115,7 @@ def build_service(
             PostgresGameRepository(connection),
             PostgresEventRepository(connection),
             world=world,
+            battle_map=battle_map,
         )
     raise ValueError(f"unknown database backend: {db!r}")
 
@@ -143,6 +153,30 @@ def _resolve_api_key(provider: str, purpose: str) -> str:
     if not api_key:
         raise ValueError(f"{env_var} is not set; export it to run with {purpose}")
     return api_key
+
+
+def _nearest_enemy(view: GameView, living: list[CharacterView]) -> CharacterView | None:
+    """The living enemy closest to the active actor on the battle map, if any.
+
+    The scripted fake decision must stay legal on a gridded encounter (R1):
+    with no movement resolver until R3, an attack-only agent can never close
+    distance, so it targets the foe it can actually reach (5-10-5 distance).
+    """
+    combat = view.combat
+    if combat is None or combat.map is None or combat.active_actor_id is None:
+        return None
+    positions = combat.map.positions
+    actor_square = positions.get(combat.active_actor_id)
+    if actor_square is None:
+        return None
+    actor = Square(*actor_square)
+    reachable = [
+        enemy
+        for enemy in living
+        if (square := positions.get(enemy.id)) is not None
+        and distance_ft(actor, Square(*square)) <= 5
+    ]
+    return reachable[0] if reachable else None
 
 
 def _gm_decision(prompt: str) -> dict[str, str]:
@@ -245,7 +279,7 @@ def _wire_party(
         def _decision() -> dict[str, str]:
             view = service.get_view(game_id)
             living = [enemy for enemy in view.enemies if not enemy.is_defeated]
-            target = living[0] if living else view.enemies[0]
+            target = _nearest_enemy(view, living) or view.enemies[0]
             return {
                 "action_type": "attack",
                 "target_id": target.id,
@@ -328,7 +362,11 @@ def build_session(config: SessionConfig) -> GameSession:
     if world_start is not None:
         path = world_start if world_start.is_absolute() else CONFIG_DIR / world_start
         world = load_world_catalog(path)
-    service = build_service(config.db, world=world)
+    map_name = encounter_map_name(CONFIG_DIR / "encounter.toml")
+    battle_map = (
+        load_battle_map(CONFIG_DIR / "maps" / f"{map_name}.toml") if map_name else None
+    )
+    service = build_service(config.db, world=world, battle_map=battle_map)
     game_id = service.create_game(CreateGameCommand(seed=config.seed))
     service.add_character(game_id, _fighter("Arin"))
 

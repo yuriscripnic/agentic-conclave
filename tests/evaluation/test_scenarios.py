@@ -12,7 +12,12 @@ def test_get_scenario_returns_goblin_skirmish() -> None:
 
     assert scenario.seed == 42
     assert scenario.repeat_runs == 2
-    assert scenario.steps == ("attack goblin scout", "attack goblin skulker")
+    # R1 grid: the strikes are range-bound, so the human keeps striking the
+    # orc (the last foe standing on the shipped map) until the fight ends.
+    assert scenario.steps == (
+        "attack goblin scout",
+        "attack goblin skulker",
+    ) + ("attack orc brute",) * 10
     assert {check.name for check in scenario.checks} == {
         "no-rejections",
         "skirmish-enemies-defeated",
