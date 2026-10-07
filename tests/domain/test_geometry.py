@@ -1,7 +1,7 @@
 import pytest
 
-from domain.space.board import Board
-from domain.space.geometry import distance_ft, line_of_sight
+from domain.space.board import Board, CoverLevel
+from domain.space.geometry import cover_between, distance_ft, line_of_sight
 from domain.space.square import Square
 
 
@@ -66,3 +66,33 @@ def test_non_dyadic_corner_graze_is_clear() -> None:
     # would misclassify it as blocked.
     board = Board(width=23, height=23, walls=frozenset({Square(15, 15)}))
     assert line_of_sight(board, Square(0, 0), Square(22, 22))
+
+
+def test_no_walls_no_flag_means_no_cover() -> None:
+    assert cover_between(_board(set()), Square(0, 0), Square(4, 0)) is CoverLevel.NONE
+
+
+def test_target_squares_own_cover_flag_applies() -> None:
+    board = Board(width=6, height=6, cover={Square(4, 0): CoverLevel.HALF})
+    assert cover_between(board, Square(0, 0), Square(4, 0)) is CoverLevel.HALF
+    board = Board(width=6, height=6, cover={Square(4, 0): CoverLevel.THREE_QUARTERS})
+    assert cover_between(board, Square(0, 0), Square(4, 0)) is (CoverLevel.THREE_QUARTERS)
+
+
+def test_partial_obstruction_grants_half_cover() -> None:
+    # The peeking case from Task 3: 15 of 16 segments blocked.
+    assert cover_between(_board({(1, 1)}), Square(0, 0), Square(2, 2)) is (CoverLevel.HALF)
+
+
+def test_fully_blocked_lines_mean_total_cover() -> None:
+    assert cover_between(_board({(2, 0)}), Square(0, 0), Square(4, 0)) is (CoverLevel.TOTAL)
+
+
+def test_partial_obstruction_upgrades_to_the_targets_flag() -> None:
+    board = Board(
+        width=6,
+        height=6,
+        walls=frozenset({Square(1, 1)}),
+        cover={Square(2, 2): CoverLevel.THREE_QUARTERS},
+    )
+    assert cover_between(board, Square(0, 0), Square(2, 2)) is (CoverLevel.THREE_QUARTERS)

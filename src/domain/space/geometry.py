@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.space.board import Board
+from domain.space.board import Board, CoverLevel, higher_cover
 from domain.space.square import Square
 
 
@@ -97,3 +97,18 @@ def _blocked_segment_count(board: Board, a: Square, b: Square) -> int:
 def line_of_sight(board: Board, a: Square, b: Square) -> bool:
     """Sight exists if at least one corner-to-corner segment touches no wall."""
     return _blocked_segment_count(board, a, b) < len(_CORNER_OFFSETS) ** 2
+
+
+def cover_between(board: Board, a: Square, b: Square) -> CoverLevel:
+    """Cover the target has against an attacker at ``a`` (R1 spec §3).
+
+    All 16 segments blocked -> TOTAL; none blocked -> the target square's own
+    flag; some blocked -> at least HALF, upgraded to the target's flag.
+    """
+    blocked = _blocked_segment_count(board, a, b)
+    own = board.cover_at(b)
+    if blocked >= len(_CORNER_OFFSETS) ** 2:
+        return CoverLevel.TOTAL
+    if blocked == 0:
+        return own
+    return higher_cover(CoverLevel.HALF, own)
