@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 from domain.common.ids import LocationId
+from domain.space.board import Board, Spawns
 from domain.world.locations import Location, LocationExit, WorldMap
 
 
 class InvalidWorldConfigError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class BattleMap:
+    """A board plus the spawn squares an encounter's combatants start on."""
+
+    board: Board
+    spawns: Spawns
 
 
 def _require(world: dict[str, object], key: str) -> str:

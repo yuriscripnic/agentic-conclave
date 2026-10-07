@@ -8,6 +8,7 @@ from application.commands import (
     WeaponSpec,
 )
 from application.game_service import GameService
+from application.world_catalog import BattleMap
 from domain.common.errors import (
     CombatNotActiveError,
     GameNotFoundError,
@@ -17,6 +18,8 @@ from domain.common.errors import (
 )
 from domain.common.ids import CharacterId, GameId
 from domain.rules.dice import DiceRoller
+from domain.space.board import Board, Spawns
+from domain.space.square import Square
 from infrastructure.events.in_memory import InMemoryEventRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
 
@@ -225,3 +228,49 @@ def test_submit_action_runs_enemy_chain_and_stops_at_party() -> None:
     assert types[-1] == "turn_started"
     assert report.view.combat is not None
     assert report.view.combat.active_actor_id == str(arin_id)
+
+
+def test_get_view_projects_the_battle_map() -> None:
+    event_store = InMemoryEventRepository()
+    battle_map = BattleMap(
+        board=Board(
+            width=10,
+            height=10,
+            # This pair iterates (9, 0) then (0, 9) out of the frozenset, so the
+            # sorted assertion below actually pins the projection's sort.
+            walls=frozenset({Square(0, 9), Square(9, 0)}),
+        ),
+        spawns=Spawns(party=(Square(0, 0),), enemies=(Square(4, 0),)),
+    )
+    service = GameService(
+        InMemoryGameRepository(event_store), event_store, battle_map=battle_map
+    )
+    game_id = service.create_game(CreateGameCommand(seed=1))
+    arin_id = service.add_character(game_id, _fighter_command())
+    goblin_id = service.add_character(game_id, _goblin_command())
+
+    view = service.start_combat(game_id)
+
+    assert view.combat is not None
+    board_view = view.combat.map
+    assert board_view is not None
+    assert board_view.width == 10
+    assert board_view.height == 10
+    assert board_view.walls == ((0, 9), (9, 0)), "walls must be sorted"
+    assert board_view.positions == {
+        str(arin_id): (0, 0),
+        str(goblin_id): (4, 0),
+    }
+
+
+def test_get_view_omits_the_map_without_a_board() -> None:
+    event_store = InMemoryEventRepository()
+    service = GameService(InMemoryGameRepository(event_store), event_store)
+    game_id = service.create_game(CreateGameCommand(seed=1))
+    service.add_character(game_id, _fighter_command())
+    service.add_character(game_id, _goblin_command())
+
+    view = service.start_combat(game_id)
+
+    assert view.combat is not None
+    assert view.combat.map is None

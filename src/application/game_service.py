@@ -21,6 +21,7 @@ from application.views import (
     SceneView,
     TurnReport,
 )
+from application.world_catalog import BattleMap
 from domain.character.abilities import AbilityScores, AbilityType
 from domain.character.character import Character, CharacterClass, CharacterType
 from domain.character.vitals import HitPoints
@@ -62,10 +63,12 @@ class GameService:
         event_repository: EventRepository,
         *,
         world: WorldMap | None = None,
+        battle_map: BattleMap | None = None,
     ) -> None:
         self._games = game_repository
         self._events = event_repository
         self._world = world
+        self._battle_map = battle_map
         self._combats: dict[GameId, Combat] = {}
         self._collectors: dict[GameId, EventCollector] = {}
         self._dice: dict[GameId, DiceRoller] = {}
@@ -204,7 +207,15 @@ class GameService:
         collector = self._collector(game)
         collector.record(GameStarted())
         engine = self._engine(game)
-        combat = engine.start(game, (*game.party_ids, *game.enemy_ids), collector)
+        board = self._battle_map.board if self._battle_map is not None else None
+        spawns = self._battle_map.spawns if self._battle_map is not None else None
+        combat = engine.start(
+            game,
+            (*game.party_ids, *game.enemy_ids),
+            collector,
+            board=board,
+            spawns=spawns,
+        )
         self._combats[game.game_id] = combat
 
     def submit_action(self, command: SubmitActionCommand) -> TurnReport:
