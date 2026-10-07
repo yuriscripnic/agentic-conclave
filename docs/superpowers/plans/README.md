@@ -41,8 +41,8 @@ mandated by the Implementation Plan document.
 | 10 | `2026-09-13-web-api.md` | Phase 19 - FastAPI adapter, DTOs, idempotency keys | Frozen (pending Rules Core) |
 | 11 | `2026-09-13-web-ui.md` | Phase 20 - static web UI over the API | Frozen (pending Rules Core) |
 | 12 | `2026-09-13-full-adventure-loop.md` | Phase 21 - locations, travel, scene loop, scene-tagged memory | Frozen (pending Rules Core) |
-| 13 | `2026-10-06-rules-core-reprioritisation.md` | Roadmap re-prioritisation: four authority documents + consistency tests | In progress |
-| 14 | `<date>-rules-core-r1-grid.md` | R1 Grid & space - battle map, coordinates, distance, reach, cover, line of sight | Planned |
+| 13 | `2026-10-06-rules-core-reprioritisation.md` | Roadmap re-prioritisation: four authority documents + consistency tests | Complete |
+| 14 | `2026-10-06-rules-core-r1-grid.md` | R1 Grid & space - battle map, coordinates, distance, reach, cover, line of sight | Complete |
 | 15 | `<date>-rules-core-r2-ruleset.md` | R2 Ruleset & data - Ruleset port, `data/rules/*.toml`, loader, SRD NOTICE | Planned |
 | 16 | `<date>-rules-core-r3-actions.md` | R3 Actions - resolvers and events for the nine inert actions, bonus/reaction members | Planned |
 | 17 | `<date>-rules-core-r4-conditions.md` | R4 Conditions - typed SRD conditions with mechanical effects | Planned |
