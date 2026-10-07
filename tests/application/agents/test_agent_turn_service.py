@@ -787,3 +787,52 @@ def test_one_correlation_id_spans_the_decision_and_memory_calls() -> None:
     assert all(record.correlation_id == "corr-42" for record in telemetry.records)
     assert all(record.agent_id == brix_id.value for record in embeds)
     assert all(record.game_id == str(game_id) for record in telemetry.records)
+
+
+def test_stranded_fallback_yields_the_turn() -> None:
+    """R1 grid: an agent with no living foe in reach yields instead of deadlocking.
+
+    A rejected proposal does not advance the turn (CLAUDE.md §28 keeps the
+    human in control), so the agent fallback — whose every attempt the engine
+    rejected — must end the turn itself or the fight spins on this actor
+    forever: positions are static until R3 movement exists.
+    """
+    from application.world_catalog import BattleMap
+    from domain.space.board import Board, Spawns
+    from domain.space.square import Square
+
+    event_store = InMemoryEventRepository()
+    game_service = GameService(
+        InMemoryGameRepository(event_store),
+        event_store,
+        battle_map=BattleMap(
+            board=Board(width=10, height=10),
+            spawns=Spawns(party=(Square(1, 1), Square(5, 5)), enemies=(Square(1, 2),)),
+        ),
+    )
+    for seed in range(1, 500):
+        game_id = game_service.create_game(CreateGameCommand(seed=seed))
+        game_service.add_character(game_id, _fighter("Arin"))
+        brix_id = game_service.add_character(game_id, _fighter("Brix"))
+        game_service.add_character(game_id, _goblin())
+        game_service.start_combat(game_id)
+        view = game_service.get_view(game_id)
+        if view.combat is not None and view.combat.active_actor_id == brix_id.value:
+            break
+    else:
+        raise AssertionError("no seed in 1..499 lets stranded Brix act first")
+    fake = FakeModelGateway()
+    for _ in range(6):  # 2 decision attempts x 3 transport attempts
+        fake.enqueue_error(ModelTimeoutError("boom"))
+    service = _agent_service(game_service, fake, max_action_retries=1)
+    service.register(brix_id, _BRIX)
+
+    report = service.take_turn(game_id, brix_id)
+
+    assert report.accepted is False  # the fallback strike was out of range
+    assert report.proposal_source == "fallback"
+    view = game_service.get_view(game_id)
+    assert view.combat is not None
+    assert view.combat.active_actor_id != brix_id.value, (
+        "a stranded agent must yield the turn, not deadlock the fight"
+    )

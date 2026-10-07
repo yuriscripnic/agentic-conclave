@@ -312,6 +312,29 @@ class GameService:
             game_over=game_over,
         )
 
+    def yield_turn(self, game_id: GameId) -> None:
+        """End the active actor's turn without an action.
+
+        A rejected proposal does not advance the turn (CLAUDE.md §28 keeps the
+        game waiting for a legal action from the human), so the agent fallback
+        — whose every attempt the engine rejected — ends the turn itself: with
+        static positions an agent left waiting on its own rejected proposals
+        would deadlock the fight until R3 movement exists.
+        """
+        game = self._game(game_id)
+        combat = self._combats.get(game_id)
+        if combat is None:
+            raise CombatNotActiveError("no active combat for this game")
+        collector = self._collector(game)
+        engine = self._engine(game)
+        if combat.status is CombatStatus.ACTIVE:
+            engine.advance_turn(game, combat, collector)
+            self._run_enemy_chain(game, combat, engine, collector)
+        game_over = combat.status is CombatStatus.ENDED
+        if game_over:
+            game.mark_ended()
+        self._persist(game)
+
     # -- travel / scenes ---------------------------------------------------
 
     def travel(self, command: TravelCommand) -> TurnReport:

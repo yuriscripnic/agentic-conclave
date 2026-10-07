@@ -223,6 +223,10 @@ class AgentTurnService:
                 target_id=CharacterId(target_id),
             )
         )
+        if not turn_report.accepted:
+            # The fallback's only action was rejected too (e.g. out of reach on
+            # the grid): yield the turn or the fight spins on this actor (§28).
+            self._game_service.yield_turn(game_id)
         self._record_memories(
             game_id, perception, turn_report, None, invocations, correlation_id
         )
