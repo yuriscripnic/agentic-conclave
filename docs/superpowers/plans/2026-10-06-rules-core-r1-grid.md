@@ -552,7 +552,7 @@ from domain.space.board import Board, CoverLevel, higher_cover
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/domain/test_geometry.py -q`
-Expected: 19 passed.
+Expected: 20 passed.
 
 - [ ] **Step 5: Commit**
 
