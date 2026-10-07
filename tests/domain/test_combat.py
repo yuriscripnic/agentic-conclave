@@ -15,7 +15,7 @@ from domain.common.ids import CampaignId, CharacterId, GameId
 from domain.events.collector import EventCollector
 from domain.rules.actions import ActionEconomy, AttackProposal
 from domain.rules.dice import DiceRoller
-from domain.space.board import Board, Spawns
+from domain.space.board import Board, CoverLevel, Spawns
 from domain.space.square import Square
 from domain.world.game import Game
 
@@ -29,9 +29,13 @@ def _seed_with_rolls(rolls: list[int]) -> int:
     raise AssertionError("no seed produced the requested rolls")
 
 
-def _weapon(weapon_id: str, name: str, die_size: int) -> Weapon:
+def _weapon(weapon_id: str, name: str, die_size: int, range_ft: int = 5) -> Weapon:
     return Weapon(
-        weapon_id=weapon_id, name=name, damage_die_count=1, damage_die_size=die_size
+        weapon_id=weapon_id,
+        name=name,
+        damage_die_count=1,
+        damage_die_size=die_size,
+        range_ft=range_ft,
     )
 
 
@@ -231,7 +235,7 @@ def test_resolve_rejection_records_event_and_mutates_nothing() -> None:
 def test_resolve_hit_applies_damage_and_consumes_action() -> None:
     # Rolls: initiative d20s (fighter's 16 beats the goblin's 10 through the DEX
     # tiebreak), then a d20 of 15 (hits AC 13 with +5 bonus).
-    seed = _seed_with_rolls([16, 10, 15])
+    seed = _seed_with_rolls([16, 10, 15, 8])
     game = _game(_fighter(), _goblin())
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -254,7 +258,7 @@ def test_resolve_hit_applies_damage_and_consumes_action() -> None:
 
 def test_resolve_critical_hit_doubles_damage_dice() -> None:
     # Rolls: initiative d20s (fighter first), then a natural 20.
-    seed = _seed_with_rolls([16, 10, 20])
+    seed = _seed_with_rolls([16, 10, 20, 8])
     game = _game(_fighter(), _goblin(hp=100))
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -289,7 +293,7 @@ def test_resolve_natural_one_always_misses() -> None:
 
 
 def test_defeated_target_emits_character_defeated() -> None:
-    seed = _seed_with_rolls([16, 10, 15])
+    seed = _seed_with_rolls([16, 10, 15, 8])
     game = _game(_fighter(), _goblin(hp=1))
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -491,3 +495,141 @@ def test_participant_absent_from_both_rosters_is_rejected() -> None:
             spawns=_spawns(),
             participants=(*game.party_ids, *game.enemy_ids, stray.id),
         )
+
+
+def _grid(
+    walls: set[tuple[int, int]] = frozenset(),
+    cover: dict[tuple[int, int], CoverLevel] | None = None,
+) -> tuple[Board, Spawns]:
+    board = Board(
+        width=10,
+        height=10,
+        walls=frozenset(Square(x, y) for x, y in walls),
+        cover={} if cover is None else {
+            Square(x, y): level for (x, y), level in cover.items()
+        },
+    )
+    spawns = Spawns(party=(Square(0, 0),), enemies=(Square(4, 0),))
+    return board, spawns
+
+
+def test_attack_beyond_weapon_range_is_rejected() -> None:
+    # (0,0) -> (4,0) is 20 ft; a longsword reaches 5 ft.
+    seed = _seed_with_rolls([16, 10, 15, 8])
+    game = _game(_fighter(), _goblin())
+    board, spawns = _grid()
+    engine, combat, collector = _start(
+        DiceRoller(seed=seed), game, board=board, spawns=spawns
+    )
+    actor_id = combat.active_actor()
+    target_id = game.opponents_of(actor_id)[0]
+
+    result = engine.resolve(
+        game, combat, AttackProposal(actor_id=actor_id, target_id=target_id), collector
+    )
+
+    assert result.valid is False
+    assert result.error_code == "out_of_range"
+    assert combat.economy.action_taken is False, "a rejected attack consumes nothing"
+    assert not [e for e in collector.events if e.event_type == "damage_applied"]
+
+
+def test_attack_without_line_of_sight_is_rejected() -> None:
+    # (0,0) -> (2,0) is 10 ft, inside a pike's reach, but a wall stands between.
+    seed = _seed_with_rolls([16, 10, 15, 8])
+    game = _game(_fighter(), _goblin())
+    game.characters[game.party_ids[0]].equipped_weapon = _weapon(
+        "pike", "Pike", 8, range_ft=10
+    )
+    board, spawns = _grid(walls={(1, 0)})
+    spawns = Spawns(party=(Square(0, 0),), enemies=(Square(2, 0),))
+    engine, combat, collector = _start(
+        DiceRoller(seed=seed), game, board=board, spawns=spawns
+    )
+    actor_id = combat.active_actor()
+    target_id = game.opponents_of(actor_id)[0]
+
+    result = engine.resolve(
+        game, combat, AttackProposal(actor_id=actor_id, target_id=target_id), collector
+    )
+
+    assert result.valid is False
+    assert result.error_code == "no_line_of_sight"
+
+
+def test_total_cover_cannot_be_targeted() -> None:
+    seed = _seed_with_rolls([16, 10, 20, 8])
+    game = _game(_fighter(), _goblin())
+    game.characters[game.party_ids[0]].equipped_weapon = _weapon(
+        "spear", "Spear", 8, range_ft=20
+    )
+    board, spawns = _grid(cover={(4, 0): CoverLevel.TOTAL})
+    engine, combat, collector = _start(
+        DiceRoller(seed=seed), game, board=board, spawns=spawns
+    )
+    actor_id = combat.active_actor()
+    target_id = game.opponents_of(actor_id)[0]
+
+    result = engine.resolve(
+        game, combat, AttackProposal(actor_id=actor_id, target_id=target_id), collector
+    )
+
+    assert result.valid is False
+    assert result.error_code == "total_cover"
+
+
+def test_half_cover_flips_a_hit_into_a_miss() -> None:
+    # Fighter's attack bonus is +5; goblin AC 13. A natural 9 (total 14) hits 13
+    # but misses the covered 15 — the same seed must flip on the board alone.
+    # The extra d20 after the roll keeps the two runs' damage dice aligned.
+    seed = _seed_with_rolls([16, 10, 9, 8])
+    game = _game(_fighter(), _goblin())
+    game.characters[game.party_ids[0]].equipped_weapon = _weapon(
+        "longbow", "Longbow", 8, range_ft=20
+    )
+    engine, combat, collector = _start(DiceRoller(seed=seed), game)
+    actor_id = combat.active_actor()
+    target_id = game.opponents_of(actor_id)[0]
+    proposal = AttackProposal(actor_id=actor_id, target_id=target_id)
+    bare = engine.resolve(game, combat, proposal, EventCollector(game_id=game.game_id))
+    assert bare.valid is True
+
+    board, spawns = _grid(cover={(4, 0): CoverLevel.HALF})
+    game2 = _game(_fighter(), _goblin())
+    game2.characters[game2.party_ids[0]].equipped_weapon = _weapon(
+        "longbow", "Longbow", 8, range_ft=20
+    )
+    engine2, combat2, collector2 = _start(
+        DiceRoller(seed=seed), game2, board=board, spawns=spawns
+    )
+    actor2 = combat2.active_actor()
+    target2 = game2.opponents_of(actor2)[0]
+    covered = engine2.resolve(
+        game2,
+        combat2,
+        AttackProposal(actor_id=actor2, target_id=target2),
+        collector2,
+    )
+
+    assert covered.valid is True, "cover is not a rejection"
+    resolved = [e for e in collector2.events if e.event_type == "attack_resolved"]
+    assert resolved[-1].payload["hit"] is False
+    assert resolved[-1].payload["target_ac"] == 15
+    assert not [e for e in collector2.events if e.event_type == "damage_applied"]
+
+
+def test_combat_without_a_board_rejects_nothing_new() -> None:
+    seed = _seed_with_rolls([16, 10, 15, 8])
+    game = _game(_fighter(), _goblin())
+    engine, combat, collector = _start(DiceRoller(seed=seed), game)
+    actor_id = combat.active_actor()
+    target_id = game.opponents_of(actor_id)[0]
+
+    result = engine.resolve(
+        game, combat, AttackProposal(actor_id=actor_id, target_id=target_id), collector
+    )
+
+    assert result.valid is True
+    assert result.error_code == ""
+
+

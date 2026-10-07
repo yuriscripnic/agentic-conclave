@@ -29,7 +29,8 @@ from domain.rules.actions import (
 from domain.rules.checks import CheckResolver
 from domain.rules.dice import DiceRoller
 from domain.rules.progression import proficiency_bonus
-from domain.space.board import Board, Spawns
+from domain.space.board import Board, CoverLevel, Spawns
+from domain.space.geometry import cover_between, distance_ft, line_of_sight
 from domain.space.square import Square
 from domain.world.game import Game
 
@@ -132,6 +133,7 @@ class CombatEngine:
             )
         if actor.equipped_weapon is None:
             return ValidationResult.reject("no weapon is equipped", "invalid_action")
+        weapon = actor.equipped_weapon
         if proposal.weapon_id is not None and (
             proposal.weapon_id != actor.equipped_weapon.weapon_id
         ):
@@ -145,6 +147,19 @@ class CombatEngine:
             return ValidationResult.reject(
                 "cannot attack a member of your own side", "invalid_target"
             )
+        board = combat.board
+        if board is None:
+            return ValidationResult.ok()
+        actor_square = combat.positions[actor.id]
+        target_square = combat.positions[target.id]
+        if distance_ft(actor_square, target_square) > weapon.range_ft:
+            return ValidationResult.reject("target is out of range", "out_of_range")
+        if not line_of_sight(board, actor_square, target_square):
+            return ValidationResult.reject(
+                "no line of sight to target", "no_line_of_sight"
+            )
+        if cover_between(board, actor_square, target_square) is CoverLevel.TOTAL:
+            return ValidationResult.reject("target has total cover", "total_cover")
         return ValidationResult.ok()
 
     def resolve(
@@ -179,7 +194,18 @@ class CombatEngine:
         attack_bonus = (
             actor.ability_scores.modifier(weapon.ability) + proficiency_bonus(actor.level)
         )
-        roll = self._checks.attack_roll(attack_bonus, target.armor_class)
+        target_ac = target.armor_class
+        if combat.board is not None:
+            cover = cover_between(
+                combat.board,
+                combat.positions[actor.id],
+                combat.positions[target.id],
+            )
+            if cover is CoverLevel.HALF:
+                target_ac += 2
+            elif cover is CoverLevel.THREE_QUARTERS:
+                target_ac += 5
+        roll = self._checks.attack_roll(attack_bonus, target_ac)
         collector.record(
             AttackResolved(
                 attacker_id=actor.id,
