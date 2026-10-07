@@ -1,4 +1,6 @@
 # tests/domain/test_combat.py
+from collections.abc import Sequence
+
 import pytest
 
 from domain.character.abilities import AbilityScores
@@ -97,12 +99,13 @@ def _start(
     game: Game,
     board: Board | None = None,
     spawns: Spawns | None = None,
+    participants: Sequence[CharacterId] | None = None,
 ) -> tuple[CombatEngine, Combat, EventCollector]:
     engine = CombatEngine(dice)
     collector = EventCollector(game_id=game.game_id)
-    combat = engine.start(
-        game, (*game.party_ids, *game.enemy_ids), collector, board=board, spawns=spawns
-    )
+    if participants is None:
+        participants = (*game.party_ids, *game.enemy_ids)
+    combat = engine.start(game, participants, collector, board=board, spawns=spawns)
     return engine, combat, collector
 
 
@@ -474,3 +477,17 @@ def test_spawn_on_a_wall_is_rejected() -> None:
     board = Board(width=5, height=5, walls=frozenset({Square(4, 0)}))
     with pytest.raises(ValidationError):
         _start(DiceRoller(seed=1), game, board=board, spawns=_spawns())
+
+
+def test_participant_absent_from_both_rosters_is_rejected() -> None:
+    game = _game(_fighter(), _goblin())
+    stray = _goblin("Stray")
+    game.characters[stray.id] = stray  # in the roster, on neither side
+    with pytest.raises(ValidationError):
+        _start(
+            DiceRoller(seed=1),
+            game,
+            board=_board(),
+            spawns=_spawns(),
+            participants=(*game.party_ids, *game.enemy_ids, stray.id),
+        )

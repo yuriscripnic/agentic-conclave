@@ -63,6 +63,8 @@ def _assign_positions(
     participants = set(participant_ids)
     party = [cid for cid in game.party_ids if cid in participants]
     enemies = [cid for cid in game.enemy_ids if cid in participants]
+    if len(party) + len(enemies) != len(participants):
+        raise ValidationError("every participant must be on the party or enemy roster")
     if len(party) > len(spawns.party) or len(enemies) > len(spawns.enemies):
         raise ValidationError("not enough spawn squares for every participant")
     positions: dict[CharacterId, Square] = {}
