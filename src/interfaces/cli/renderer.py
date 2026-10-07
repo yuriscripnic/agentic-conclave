@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from application.gm.director import GmResult
-from application.views import CharacterView, GameView, TurnReport
+from application.views import CharacterView, CombatView, GameView, TurnReport
 from domain.events.collector import EventEnvelope
 
 
@@ -46,7 +46,33 @@ def render_game_view(console: Console, view: GameView) -> None:
         "Initiative: "
         + ", ".join(f"{e.name} ({e.total})" for e in combat.initiative_order)
     )
+    _render_battle_map(console, view, combat)
     console.print("Actions: attack <target> — /status /help /quit")
+
+
+def _render_battle_map(console: Console, view: GameView, combat: CombatView) -> None:
+    board = combat.map
+    if board is None:
+        return
+    party_ids = {member.id for member in view.party}
+    enemy_initials = {
+        member.id: (member.name[:1] or "?").upper() for member in view.enemies
+    }
+    for y in reversed(range(board.height)):
+        row = ""
+        for x in range(board.width):
+            occupant = next(
+                (cid for cid, sq in board.positions.items() if sq == (x, y)), None
+            )
+            if (x, y) in board.walls:
+                row += "#"
+            elif occupant is not None and occupant in party_ids:
+                row += "@"
+            elif occupant is not None:
+                row += enemy_initials.get(occupant, "?")
+            else:
+                row += "."
+        console.print(row)
 
 
 def _roster_table(title: str, members: Sequence[CharacterView]) -> Table:

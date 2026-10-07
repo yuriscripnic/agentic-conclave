@@ -28,11 +28,20 @@ class InitiativeEntryView:
 
 
 @dataclass(frozen=True)
+class BattleMapView:
+    width: int
+    height: int
+    walls: tuple[tuple[int, int], ...]
+    positions: dict[str, tuple[int, int]]
+
+
+@dataclass(frozen=True)
 class CombatView:
     round_number: int
     status: str
     active_actor_id: str | None
     initiative_order: list[InitiativeEntryView]
+    map: BattleMapView | None = None
 
 
 @dataclass(frozen=True)

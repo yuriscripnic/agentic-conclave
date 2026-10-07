@@ -13,6 +13,7 @@ from application.commands import (
 )
 from application.ports import GameRepository
 from application.views import (
+    BattleMapView,
     CharacterView,
     CombatView,
     GameView,
@@ -375,6 +376,22 @@ class GameService:
                     )
                     for entry in combat.entries
                 ],
+                map=(
+                    BattleMapView(
+                        width=combat.board.width,
+                        height=combat.board.height,
+                        walls=tuple(
+                            (square.x, square.y)
+                            for square in sorted(combat.board.walls)
+                        ),
+                        positions={
+                            str(character_id): (square.x, square.y)
+                            for character_id, square in combat.positions.items()
+                        },
+                    )
+                    if combat.board is not None
+                    else None
+                ),
             )
         return GameView(
             game_id=str(game.game_id),

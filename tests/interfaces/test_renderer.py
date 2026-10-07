@@ -5,6 +5,7 @@ from rich.console import Console
 
 from application.gm.director import GmResult
 from application.views import (
+    BattleMapView,
     CharacterView,
     CombatView,
     GameView,
@@ -179,3 +180,57 @@ def test_render_gm_result_prints_nothing_for_an_empty_result() -> None:
     console, buffer = _console()
     render_gm_result(console, GmResult(), _view())
     assert buffer.getvalue().strip() == ""
+
+
+def test_battle_map_renders_walls_and_occupants() -> None:
+    console, buffer = _console()
+    view = GameView(
+        game_id="game-1",
+        campaign_name="The Forgotten Ruins",
+        status="running",
+        party=[
+            CharacterView(
+                id="c1",
+                name="Arin",
+                character_class="fighter",
+                level=1,
+                hp_current=12,
+                hp_max=12,
+                armor_class=16,
+                conditions=[],
+                is_defeated=False,
+            )
+        ],
+        enemies=[
+            CharacterView(
+                id="c2",
+                name="Goblin",
+                character_class=None,
+                level=1,
+                hp_current=7,
+                hp_max=7,
+                armor_class=13,
+                conditions=[],
+                is_defeated=False,
+            )
+        ],
+        combat=CombatView(
+            round_number=1,
+            status="active",
+            active_actor_id="c1",
+            initiative_order=[],
+            map=BattleMapView(
+                width=3,
+                height=2,
+                walls=((1, 0),),
+                positions={"c1": (0, 0), "c2": (2, 1)},
+            ),
+        ),
+    )
+
+    render_game_view(console, view)
+
+    out = buffer.getvalue()
+    assert "#" in out, "the wall must render"
+    assert "@" in out, "the party member must render"
+    assert "G" in out, "the enemy renders as the first letter of its name"
