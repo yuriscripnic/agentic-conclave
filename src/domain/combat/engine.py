@@ -150,6 +150,10 @@ class CombatEngine:
         board = combat.board
         if board is None:
             return ValidationResult.ok()
+        if target.id not in combat.positions:
+            return ValidationResult.reject(
+                "target is not part of this encounter", "invalid_target"
+            )
         actor_square = combat.positions[actor.id]
         target_square = combat.positions[target.id]
         if distance_ft(actor_square, target_square) > weapon.range_ft:

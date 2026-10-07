@@ -235,7 +235,7 @@ def test_resolve_rejection_records_event_and_mutates_nothing() -> None:
 def test_resolve_hit_applies_damage_and_consumes_action() -> None:
     # Rolls: initiative d20s (fighter's 16 beats the goblin's 10 through the DEX
     # tiebreak), then a d20 of 15 (hits AC 13 with +5 bonus).
-    seed = _seed_with_rolls([16, 10, 15, 8])
+    seed = _seed_with_rolls([16, 10, 15])
     game = _game(_fighter(), _goblin())
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -258,7 +258,7 @@ def test_resolve_hit_applies_damage_and_consumes_action() -> None:
 
 def test_resolve_critical_hit_doubles_damage_dice() -> None:
     # Rolls: initiative d20s (fighter first), then a natural 20.
-    seed = _seed_with_rolls([16, 10, 20, 8])
+    seed = _seed_with_rolls([16, 10, 20])
     game = _game(_fighter(), _goblin(hp=100))
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -293,7 +293,7 @@ def test_resolve_natural_one_always_misses() -> None:
 
 
 def test_defeated_target_emits_character_defeated() -> None:
-    seed = _seed_with_rolls([16, 10, 15, 8])
+    seed = _seed_with_rolls([16, 10, 15])
     game = _game(_fighter(), _goblin(hp=1))
     engine, combat, collector = _start(DiceRoller(seed=seed), game)
     actor_id = combat.active_actor()
@@ -631,5 +631,34 @@ def test_combat_without_a_board_rejects_nothing_new() -> None:
 
     assert result.valid is True
     assert result.error_code == ""
+
+
+def test_attack_on_a_roster_member_outside_the_encounter_is_rejected() -> None:
+    # A second goblin waits on the enemy roster but was not given a spawn
+    # square, so it is not part of this encounter; attacking it must be a
+    # clean rejection, not a KeyError.
+    seed = _seed_with_rolls([16, 10, 15])
+    game = _game(_fighter(), _goblin(), _goblin("Absent"))
+    game.characters[game.party_ids[0]].equipped_weapon = _weapon(
+        "spear", "Spear", 8, range_ft=20
+    )
+    board, spawns = _grid()
+    engine, combat, collector = _start(
+        DiceRoller(seed=seed),
+        game,
+        board=board,
+        spawns=spawns,
+        participants=(*game.party_ids, game.enemy_ids[0]),
+    )
+    actor_id = combat.active_actor()
+    absent_id = game.enemy_ids[-1]
+    assert absent_id not in combat.positions
+
+    result = engine.resolve(
+        game, combat, AttackProposal(actor_id=actor_id, target_id=absent_id), collector
+    )
+
+    assert result.valid is False
+    assert result.error_code == "invalid_target"
 
 
