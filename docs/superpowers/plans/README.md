@@ -43,7 +43,7 @@ mandated by the Implementation Plan document.
 | 12 | `2026-09-13-full-adventure-loop.md` | Phase 21 - locations, travel, scene loop, scene-tagged memory | Frozen (pending Rules Core) |
 | 13 | `2026-10-06-rules-core-reprioritisation.md` | Roadmap re-prioritisation: four authority documents + consistency tests | Complete |
 | 14 | `2026-10-06-rules-core-r1-grid.md` | R1 Grid & space - battle map, coordinates, distance, reach, cover, line of sight | Complete |
-| 15 | `<date>-rules-core-r2-ruleset.md` | R2 Ruleset & data - Ruleset port, `data/rules/*.toml`, loader, SRD NOTICE | Planned |
+| 15 | `2026-10-07-rules-core-r2-ruleset.md` | R2 Ruleset & data - Ruleset port, `data/rules/*.toml`, loader, SRD NOTICE | Complete |
 | 16 | `<date>-rules-core-r3-actions.md` | R3 Actions - resolvers and events for the nine inert actions, bonus/reaction members | Planned |
 | 17 | `<date>-rules-core-r4-conditions.md` | R4 Conditions - typed SRD conditions with mechanical effects | Planned |
 | 18 | `<date>-rules-core-r5-life-death.md` | R5 Life & death - dying, death saves, stabilization, healing, rests | Planned |
