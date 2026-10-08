@@ -105,6 +105,7 @@ def _weapons(directory: Path) -> dict[str, Weapon]:
                 f"{where} die size must be one of {DIE_SIZES}, got d{die_size}"
             )
         ability = _string(row, "ability", where)
+        _string(row, "damage_type", where)  # recorded now; R3/R9 consume it
         try:
             ability_type = AbilityType(ability)
         except ValueError:

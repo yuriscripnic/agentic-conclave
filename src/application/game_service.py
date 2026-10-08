@@ -38,11 +38,11 @@ from domain.common.errors import (
 )
 from domain.common.ids import CampaignId, CharacterId, GameId, LocationId
 from domain.events.collector import EventCollector, EventEnvelope
-from domain.rules.ruleset import Ruleset
 from domain.events.events import GameCreated, GameStarted
 from domain.events.repository import EventRepository
 from domain.rules.actions import AttackProposal
 from domain.rules.dice import DiceRoller
+from domain.rules.ruleset import Ruleset
 from domain.world.game import Game, GameStatus
 from domain.world.locations import WorldMap
 from domain.world.travel import TravelProposal, TravelService

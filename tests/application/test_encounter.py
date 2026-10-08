@@ -41,6 +41,10 @@ def test_statblock_numbers_survive_the_migration() -> None:
         assert command.weapon is not None
         assert command.weapon.weapon_id == "scimitar"
         assert command.weapon.damage_die_size == 6
+        # Roll-preservation pin (Task 5 ruling): the encounter maps WITHOUT the
+        # weapon data's ability. Switching this to weapon_spec() flips goblin
+        # scimitar attacks STR −1 → DEX +2 and every seeded eval ground truth.
+        assert command.weapon.ability == "strength"
     assert (orc.strength, orc.dexterity, orc.constitution) == (16, 12, 14)
     assert orc.armor_class == 15
     assert orc.max_hp == 15

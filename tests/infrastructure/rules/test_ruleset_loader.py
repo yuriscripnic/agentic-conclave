@@ -168,3 +168,19 @@ def test_wrong_value_type_is_a_load_error(tmp_path: Path) -> None:
     )
     with pytest.raises(RulesetError):
         load_ruleset(directory)
+
+
+def test_weapon_missing_damage_type_is_a_load_error(tmp_path: Path) -> None:
+    """Spec §4: damage_type is recorded now; the loader validates presence."""
+    directory = _minimal_ruleset(
+        tmp_path,
+        {
+            "weapons.toml": (
+                '[[weapon]]\nweapon_id = "club"\nname = "Club"\n'
+                "damage_die_count = 1\ndamage_die_size = 4\nability = \"strength\"\n"
+                'range_ft = 5\n'
+            ),
+        },
+    )
+    with pytest.raises(RulesetError, match="damage_type"):
+        load_ruleset(directory)
