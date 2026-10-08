@@ -420,7 +420,8 @@ def build_session(config: SessionConfig) -> GameSession:
     if config.gm_mode != "off":
         gm_director = _wire_gm(service, config, telemetry)
 
-    for enemy_command in load_encounter(CONFIG_DIR / "encounter.toml"):
+    ruleset = load_session_ruleset(CONFIG_DIR, DATA_RULES_DIR.parent)
+    for enemy_command in load_encounter(CONFIG_DIR / "encounter.toml", ruleset):
         service.add_character(game_id, enemy_command)
     if world is None:
         service.start_combat(game_id)
