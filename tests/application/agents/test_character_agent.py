@@ -29,6 +29,7 @@ _STATS = AgentStats(
     armor_class=16,
     speed_ft=30,
     max_hp=12,
+    weapon_id="longsword",
     weapon=WeaponSpec(
         weapon_id="longsword",
         name="Longsword",

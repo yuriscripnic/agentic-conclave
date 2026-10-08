@@ -4,11 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from application.commands import AddCharacterCommand, WeaponSpec
 from application.encounter import EncounterError, load_encounter
-
-
-
 
 # --- R2: enemies reference ruleset statblocks; the loader resolves them ---
 

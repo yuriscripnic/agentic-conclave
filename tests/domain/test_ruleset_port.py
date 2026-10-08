@@ -5,6 +5,7 @@ import pytest
 from domain.character.abilities import AbilityType
 from domain.character.character import CharacterClass
 from domain.character.weapon import Weapon
+from domain.common.errors import ValidationError
 from domain.rules.classes import ClassData
 from domain.rules.errors import RulesetError, UnknownRuleEntry
 from domain.rules.ruleset import Ruleset
@@ -83,13 +84,13 @@ def test_statblock_holds_the_enemy_shape() -> None:
     [("max_hp", 0), ("armor_class", -1), ("speed_ft", 0), ("level", 0), ("level", 21)],
 )
 def test_statblock_rejects_out_of_range_numbers(field: str, value: int) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _statblock(**{field: value})
 
 
 @pytest.mark.parametrize("field", ["statblock_id", "name", "weapon_id"])
 def test_statblock_rejects_blank_strings(field: str) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _statblock(**{field: "  "})
 
 
@@ -100,12 +101,12 @@ def test_class_data_carries_hit_die() -> None:
 
 
 def test_class_data_rejects_unknown_class_id() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ClassData(class_id="bard", name="Bard", hit_die_size=8)
 
 
 def test_class_data_rejects_non_die_hit_die() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         ClassData(class_id="fighter", name="Fighter", hit_die_size=7)
 
 

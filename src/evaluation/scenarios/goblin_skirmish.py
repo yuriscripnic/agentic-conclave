@@ -9,6 +9,10 @@ the fight outlives two steps, so the human keeps striking the orc (the last
 foe standing on the shipped map) until the engine ends the combat; at other
 seeds a strike can still land on a foe the AI party dropped first, which
 fails no-rejections by design of static human scripts.
+
+R2 retune: agent weapons now resolve through the ruleset (R2 spec §5), which
+changes the seeded dice order, so the strikes were re-searched at seed 42:
+two scout strikes then orc strikes until the engine ends the combat.
 """
 
 from __future__ import annotations
@@ -46,10 +50,9 @@ GOBLIN_SKIRMISH = Scenario(
         "every proposed action must pass rules validation and both goblins fall."
     ),
     seed=42,
-    # R1 grid: attacks are range-bound, so the two-strike script no longer
-    # outlives the fight — the human keeps striking the orc (the last foe
-    # standing on the shipped map) until the engine ends the combat.
-    steps=("attack goblin scout", "attack goblin skulker")
+    # R2 retune (seeded dice order changed with ruleset-resolved weapons):
+    # two scout strikes, then orc strikes until the engine ends the combat.
+    steps=("attack goblin scout", "attack goblin scout")
     + ("attack orc brute",) * 10,
     repeat_runs=2,
     checks=(

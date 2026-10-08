@@ -82,7 +82,9 @@ def test_main_agent_fake_plays_a_full_fight(monkeypatch: pytest.MonkeyPatch) -> 
     code = main(
         argv=["--agent", "fake"],
         console=console,
-        input_fn=_scripted(*(["attack orc brute"] * 60)),
+        input_fn=_scripted(
+            *(["attack goblin scout"] * 2 + ["attack orc brute"] * 10)
+        ),
     )
     assert code == 0
     output = buffer.getvalue()

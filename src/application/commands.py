@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.character.abilities import AbilityType
 from domain.common.ids import CharacterId, GameId
+from domain.rules.ruleset import Ruleset
 
 
 @dataclass(frozen=True)
@@ -21,6 +23,21 @@ class WeaponSpec:
     damage_die_size: int
     ability: str = "strength"
     range_ft: int = 5
+
+
+def weapon_spec(ruleset: Ruleset, weapon_id: str) -> WeaponSpec:
+    """Resolve a ruleset weapon id into the command carry-type (R2 spec §2)."""
+    weapon = ruleset.weapon(weapon_id)
+    return WeaponSpec(
+        weapon_id=weapon.weapon_id,
+        name=weapon.name,
+        damage_die_count=weapon.damage_die_count,
+        damage_die_size=weapon.damage_die_size,
+        ability=weapon.ability.value
+        if isinstance(weapon.ability, AbilityType)
+        else str(weapon.ability),
+        range_ft=weapon.range_ft,
+    )
 
 
 @dataclass(frozen=True)

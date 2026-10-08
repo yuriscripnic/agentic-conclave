@@ -73,7 +73,7 @@ def _rows(document: Any, name: str) -> list[dict[str, Any]]:
     rows = next(iter(document.values()), None) if document else None
     if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
         raise RulesetError(f"{name} must be an array of tables")
-    return rows  # type: ignore[return-value]
+    return rows
 
 
 def _string(row: dict[str, Any], key: str, where: str) -> str:

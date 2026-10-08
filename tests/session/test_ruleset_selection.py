@@ -62,3 +62,16 @@ def test_selection_loads_the_named_directory(tmp_path: Path) -> None:
 def test_swapping_the_id_is_config_only(tmp_path: Path) -> None:
     with pytest.raises(RulesetError, match="alt"):
         load_session_ruleset(_config(tmp_path, "alt"), _data_root(tmp_path))
+
+
+def test_weapon_spec_helper_resolves_through_the_ruleset(tmp_path: Path) -> None:
+    from application.commands import weapon_spec
+    from infrastructure.rules.loader import load_ruleset
+
+    shipped = Path(__file__).resolve().parents[2] / "data" / "rules" / "dnd5e-srd-5.2"
+    spec = weapon_spec(load_ruleset(shipped), "longsword")
+    assert spec.weapon_id == "longsword"
+    assert spec.damage_die_count == 1
+    assert spec.damage_die_size == 8
+    assert spec.ability == "strength"
+    assert spec.range_ft == 5

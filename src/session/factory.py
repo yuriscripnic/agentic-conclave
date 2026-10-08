@@ -22,7 +22,11 @@ from application.agents.agent_turn_service import AgentTurnService
 from application.agents.fake_script import ScriptedAgentGateway, ScriptedGmGateway
 from application.agents.party_board import PartyMessageBoard
 from application.agents.profiles import load_agent_profiles
-from application.commands import AddCharacterCommand, CreateGameCommand, WeaponSpec
+from application.commands import (
+    AddCharacterCommand,
+    CreateGameCommand,
+    weapon_spec,
+)
 from application.encounter import encounter_map_name, load_encounter
 from application.game_service import GameService
 from application.gm.conversation import GmConversation
@@ -47,13 +51,13 @@ from infrastructure.llm import create_embedding_gateway, create_gateway
 from infrastructure.memory.in_memory import InMemoryMemoryRepository
 from infrastructure.memory.pgvector_repository import PgvectorMemoryRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
-from infrastructure.rules.loader import TomlRuleset, load_ruleset
 from infrastructure.persistence.postgres.connection import connect
 from infrastructure.persistence.postgres.migrate import run_migrations
 from infrastructure.persistence.postgres.repository import (
     PostgresEventRepository,
     PostgresGameRepository,
 )
+from infrastructure.rules.loader import TomlRuleset, load_ruleset
 from infrastructure.telemetry.in_memory import InMemoryTelemetrySink
 from infrastructure.telemetry.logging_sink import LoggingTelemetrySink
 from infrastructure.telemetry.postgres import PostgresTelemetrySink
@@ -240,7 +244,7 @@ def _fake_or_injected(config: SessionConfig) -> FakeModelGateway:
     return FakeModelGateway()
 
 
-def _fighter(name: str) -> AddCharacterCommand:
+def _fighter(name: str, ruleset: Ruleset) -> AddCharacterCommand:
     return AddCharacterCommand(
         name=name,
         character_type="player",
@@ -255,12 +259,7 @@ def _fighter(name: str) -> AddCharacterCommand:
         armor_class=16,
         speed_ft=30,
         max_hp=12,
-        weapon=WeaponSpec(
-            weapon_id="longsword",
-            name="Longsword",
-            damage_die_count=1,
-            damage_die_size=8,
-        ),
+        weapon=weapon_spec(ruleset, "longsword"),
     )
 
 
@@ -293,9 +292,10 @@ def _wire_party(
     config: SessionConfig,
     board: PartyMessageBoard,
     telemetry: TelemetrySink,
+    ruleset: Ruleset,
 ) -> tuple[AgentTurnService, tuple[str, ...], AgentRuntime, ModelProfileCatalog]:
     """Wire the agent stack and add the AI party members before combat starts."""
-    agent_profiles = load_agent_profiles(CONFIG_DIR / "agents.toml")
+    agent_profiles = load_agent_profiles(CONFIG_DIR / "agents.toml", ruleset)
     model_catalog = load_model_profiles(CONFIG_DIR / "llm.toml")
     api_key: str | None = None
     if config.agent_mode == "llm":
@@ -397,14 +397,15 @@ def build_session(config: SessionConfig) -> GameSession:
     battle_map = (
         load_battle_map(CONFIG_DIR / "maps" / f"{map_name}.toml") if map_name else None
     )
+    ruleset = load_session_ruleset(CONFIG_DIR, DATA_RULES_DIR.parent)
     service = build_service(
         config.db,
         world=world,
         battle_map=battle_map,
-        ruleset=load_session_ruleset(CONFIG_DIR, DATA_RULES_DIR.parent),
+        ruleset=ruleset,
     )
     game_id = service.create_game(CreateGameCommand(seed=config.seed))
-    service.add_character(game_id, _fighter("Arin"))
+    service.add_character(game_id, _fighter("Arin", ruleset))
 
     board = PartyMessageBoard()
     turn_service: AgentTurnService | None = None
@@ -413,7 +414,7 @@ def build_session(config: SessionConfig) -> GameSession:
     agent_catalog: ModelProfileCatalog | None = None
     if config.agent_mode is not None:
         turn_service, party_names, agent_runtime, agent_catalog = _wire_party(
-            service, game_id, config, board, telemetry
+            service, game_id, config, board, telemetry, ruleset
         )
 
     gm_director: GmDirector | None = None

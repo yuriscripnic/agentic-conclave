@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from application.commands import WeaponSpec
+from application.commands import WeaponSpec, weapon_spec
 from domain.character.character import CharacterClass
+from domain.rules.ruleset import Ruleset
 
 
 class AgentProfileError(ValueError):
@@ -33,6 +34,7 @@ class AgentStats:
     armor_class: int
     speed_ft: int
     max_hp: int
+    weapon_id: str
     weapon: WeaponSpec
 
 
@@ -79,32 +81,26 @@ def _positive_int(table: Mapping[str, Any], key: str, where: str) -> int:
     return value
 
 
-def _load_stats(agent_table: Mapping[str, Any], name: str) -> AgentStats:
+def _load_stats(
+    agent_table: Mapping[str, Any], name: str, ruleset: Ruleset
+) -> AgentStats:
     where = f"[agents.{name}]"
     stats = agent_table.get("stats")
     if not isinstance(stats, dict):
         raise AgentProfileError(f"{where} stats must be a table")
     values = {field: _positive_int(stats, field, where) for field in _STAT_INT_FIELDS}
-    weapon_where = f"{where} stats.weapon"
-    weapon = stats.get("weapon")
-    if not isinstance(weapon, dict):
-        raise AgentProfileError(f"{weapon_where} must be a table")
-    for key in ("weapon_id", "name"):
-        value = weapon.get(key)
-        if not isinstance(value, str) or not value:
-            raise AgentProfileError(f"{weapon_where}.{key} must be a non-empty string")
+    weapon_where = f"{where} stats.weapon_id"
+    weapon_id = stats.get("weapon_id")
+    if not isinstance(weapon_id, str) or not weapon_id.strip():
+        raise AgentProfileError(f"{weapon_where} must be a non-empty string")
     return AgentStats(
         **values,
-        weapon=WeaponSpec(
-            weapon_id=weapon["weapon_id"],
-            name=weapon["name"],
-            damage_die_count=_positive_int(weapon, "damage_die_count", weapon_where),
-            damage_die_size=_positive_int(weapon, "damage_die_size", weapon_where),
-        ),
+        weapon_id=weapon_id,
+        weapon=weapon_spec(ruleset, weapon_id),
     )
 
 
-def load_agent_profiles(path: str | Path) -> AgentProfileCatalog:
+def load_agent_profiles(path: str | Path, ruleset: Ruleset) -> AgentProfileCatalog:
     """Load [agent] and [agents.*] tables; structure validation only."""
     with Path(path).open("rb") as handle:
         data: dict[str, Any] = tomllib.load(handle)
@@ -148,7 +144,7 @@ def load_agent_profiles(path: str | Path) -> AgentProfileCatalog:
             persona=entry["persona"],
             objective=entry["objective"],
             model_profile=entry["model_profile"],
-            stats=_load_stats(entry, name),
+            stats=_load_stats(entry, name, ruleset),
         )
 
     return AgentProfileCatalog(max_action_retries=retries, agents=agents)

@@ -19,11 +19,7 @@ armor_class = 16
 speed_ft = 30
 max_hp = 12
 
-[agents.brix.stats.weapon]
 weapon_id = "longsword"
-name = "Longsword"
-damage_die_count = 1
-damage_die_size = 8
 
 [agents.mira]
 character_name = "Mira"
@@ -43,11 +39,7 @@ armor_class = 15
 speed_ft = 30
 max_hp = 10
 
-[agents.mira.stats.weapon]
 weapon_id = "shortsword"
-name = "Shortsword"
-damage_die_count = 1
-damage_die_size = 6
 
 [agents.sera]
 character_name = "Sera"
@@ -67,8 +59,4 @@ armor_class = 16
 speed_ft = 30
 max_hp = 11
 
-[agents.sera.stats.weapon]
 weapon_id = "mace"
-name = "Mace"
-damage_die_count = 1
-damage_die_size = 6
