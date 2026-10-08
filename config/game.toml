@@ -2,3 +2,8 @@
 [loop]
 tick_seconds = 0.0                # CLI sleep between agent scene actions (0 = interactive)
 max_agent_scene_actions = 4       # consecutive rejected scene actions → actor skipped
+
+# The active ruleset (R2): an id naming a directory under data/rules/.
+# Swapping rulesets is config-only (CLAUDE.md §13).
+[ruleset]
+id = "dnd5e-srd-5.2"

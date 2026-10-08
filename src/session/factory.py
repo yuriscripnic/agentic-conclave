@@ -38,6 +38,7 @@ from application.telemetry import (
 from application.views import CharacterView, GameView
 from application.world_catalog import BattleMap, load_battle_map, load_world_catalog
 from domain.common.ids import GameId
+from domain.rules.ruleset import Ruleset
 from domain.space.geometry import distance_ft
 from domain.space.square import Square
 from domain.world.locations import WorldMap
@@ -46,6 +47,7 @@ from infrastructure.llm import create_embedding_gateway, create_gateway
 from infrastructure.memory.in_memory import InMemoryMemoryRepository
 from infrastructure.memory.pgvector_repository import PgvectorMemoryRepository
 from infrastructure.persistence.in_memory import InMemoryGameRepository
+from infrastructure.rules.loader import TomlRuleset, load_ruleset
 from infrastructure.persistence.postgres.connection import connect
 from infrastructure.persistence.postgres.migrate import run_migrations
 from infrastructure.persistence.postgres.repository import (
@@ -57,6 +59,32 @@ from infrastructure.telemetry.logging_sink import LoggingTelemetrySink
 from infrastructure.telemetry.postgres import PostgresTelemetrySink
 
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "config"
+DATA_RULES_DIR = Path(__file__).resolve().parents[2] / "data" / "rules"
+DEFAULT_RULESET_ID = "dnd5e-srd-5.2"
+
+
+def ruleset_id_from_config(config_dir: Path) -> str:
+    """The [ruleset] id from config/game.toml; the SRD 5.2 default when absent."""
+    import tomllib
+
+    try:
+        document = tomllib.loads(
+            (config_dir / "game.toml").read_text(encoding="utf-8")
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return DEFAULT_RULESET_ID
+    table = document.get("ruleset")
+    if not isinstance(table, dict):
+        return DEFAULT_RULESET_ID
+    ruleset_id = table.get("id", DEFAULT_RULESET_ID)
+    if not isinstance(ruleset_id, str) or not ruleset_id.strip():
+        return DEFAULT_RULESET_ID
+    return ruleset_id
+
+
+def load_session_ruleset(config_dir: Path, data_root: Path) -> TomlRuleset:
+    """Resolve the configured id against the rules-data root (R2 spec §5)."""
+    return load_ruleset(data_root / "rules" / ruleset_id_from_config(config_dir))
 
 
 @dataclass(frozen=True)
@@ -92,6 +120,7 @@ def build_service(
     *,
     world: WorldMap | None = None,
     battle_map: BattleMap | None = None,
+    ruleset: Ruleset | None = None,
 ) -> GameService:
     """Wire the application layer onto a persistence backend (spec §8)."""
     if db == "memory":
@@ -101,6 +130,7 @@ def build_service(
             event_store,
             world=world,
             battle_map=battle_map,
+            ruleset=ruleset,
         )
     if db == "postgres":
         database_url = os.environ.get("DATABASE_URL")
@@ -116,6 +146,7 @@ def build_service(
             PostgresEventRepository(connection),
             world=world,
             battle_map=battle_map,
+            ruleset=ruleset,
         )
     raise ValueError(f"unknown database backend: {db!r}")
 
@@ -366,7 +397,12 @@ def build_session(config: SessionConfig) -> GameSession:
     battle_map = (
         load_battle_map(CONFIG_DIR / "maps" / f"{map_name}.toml") if map_name else None
     )
-    service = build_service(config.db, world=world, battle_map=battle_map)
+    service = build_service(
+        config.db,
+        world=world,
+        battle_map=battle_map,
+        ruleset=load_session_ruleset(CONFIG_DIR, DATA_RULES_DIR.parent),
+    )
     game_id = service.create_game(CreateGameCommand(seed=config.seed))
     service.add_character(game_id, _fighter("Arin"))
 

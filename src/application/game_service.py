@@ -38,6 +38,7 @@ from domain.common.errors import (
 )
 from domain.common.ids import CampaignId, CharacterId, GameId, LocationId
 from domain.events.collector import EventCollector, EventEnvelope
+from domain.rules.ruleset import Ruleset
 from domain.events.events import GameCreated, GameStarted
 from domain.events.repository import EventRepository
 from domain.rules.actions import AttackProposal
@@ -64,11 +65,13 @@ class GameService:
         *,
         world: WorldMap | None = None,
         battle_map: BattleMap | None = None,
+        ruleset: Ruleset | None = None,
     ) -> None:
         self._games = game_repository
         self._events = event_repository
         self._world = world
         self._battle_map = battle_map
+        self._ruleset = ruleset
         self._combats: dict[GameId, Combat] = {}
         self._collectors: dict[GameId, EventCollector] = {}
         self._dice: dict[GameId, DiceRoller] = {}
@@ -91,7 +94,10 @@ class GameService:
             # One seeded roller per game: identical seed + roll order => identical game.
             dice = DiceRoller(seed=game.seed)
             self._dice[game.game_id] = dice
-        return CombatEngine(dice)
+        diagonal = (
+            self._ruleset.diagonal_rule if self._ruleset is not None else "5_10_5"
+        )
+        return CombatEngine(dice, diagonal_rule=diagonal)
 
     def _persist(self, game: Game) -> list[EventEnvelope]:
         drained = self._collector(game).drain()
@@ -156,6 +162,7 @@ class GameService:
                 damage_die_count=command.weapon.damage_die_count,
                 damage_die_size=command.weapon.damage_die_size,
                 ability=AbilityType(command.weapon.ability),
+                range_ft=command.weapon.range_ft,
             )
         )
         return Character(

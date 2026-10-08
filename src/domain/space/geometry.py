@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+from domain.common.errors import ValidationError
 from domain.space.board import Board, CoverLevel, higher_cover
 from domain.space.square import Square
 
 
-def distance_ft(a: Square, b: Square) -> int:
-    """Distance in feet, 5-10-5: each diagonal step of the Chebyshev path costs
-    5, then 10, alternating; straight steps cost 5."""
+def distance_ft(a: Square, b: Square, *, diagonal_rule: str = "5_10_5") -> int:
+    """Distance in feet; the diagonal cost model is a ruleset parameter (R2).
+
+    "5_10_5": each diagonal step alternates 5, 10 (R1 behaviour, the default).
+    "5_5_5": every diagonal step costs 5 (the SRD's simpler variant).
+    """
+    if diagonal_rule not in ("5_10_5", "5_5_5"):
+        raise ValidationError(f"unknown diagonal rule {diagonal_rule!r}")
     dx = abs(a.x - b.x)
     dy = abs(a.y - b.y)
     diagonals = min(dx, dy)
     straight = max(dx, dy) - diagonals
+    if diagonal_rule == "5_5_5":
+        return 5 * (diagonals + straight)
     total = 0
     for index in range(diagonals):
         total += 5 if index % 2 == 0 else 10

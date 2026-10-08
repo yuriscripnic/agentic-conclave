@@ -662,3 +662,44 @@ def test_attack_on_a_roster_member_outside_the_encounter_is_rejected() -> None:
     assert result.error_code == "invalid_target"
 
 
+
+def test_engine_honours_a_non_default_diagonal_rule() -> None:
+    """Two diagonal steps: 15 ft under 5-10-5, 10 ft under 5-5-5.
+
+    Both sides carry a 10-ft-reach weapon so the two rules differ inside the
+    range check, and the active actor attacks its opponent.
+    """
+    from domain.rules.actions import AttackProposal
+
+    game = _game(_fighter(), _goblin())
+    for character in game.characters.values():
+        character.equipped_weapon = _weapon("pike", "Pike", 10, range_ft=10)
+    board = _board()
+    spawns = Spawns(party=(Square(0, 0),), enemies=(Square(2, 2),))
+
+    def _combat(engine: CombatEngine) -> Combat:
+        collector = EventCollector(game_id=game.game_id)
+        return engine.start(
+            game,
+            (*game.party_ids, *game.enemy_ids),
+            collector,
+            board=board,
+            spawns=spawns,
+        )
+
+    first = _combat(CombatEngine(DiceRoller(seed=1)))
+    attacker_id = first.active_actor()
+    proposal = AttackProposal(
+        actor_id=attacker_id,
+        target_id=game.opponents_of(attacker_id)[0],
+        weapon_id="pike",
+    )
+
+    engine_10 = CombatEngine(DiceRoller(seed=1))
+    assert (
+        engine_10.validate(game, _combat(engine_10), proposal).error_code
+        == "out_of_range"
+    )
+
+    engine_5 = CombatEngine(DiceRoller(seed=1), diagonal_rule="5_5_5")
+    assert engine_5.validate(game, _combat(engine_5), proposal).valid

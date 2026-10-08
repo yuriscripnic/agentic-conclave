@@ -20,6 +20,7 @@ class WeaponSpec:
     damage_die_count: int
     damage_die_size: int
     ability: str = "strength"
+    range_ft: int = 5
 
 
 @dataclass(frozen=True)

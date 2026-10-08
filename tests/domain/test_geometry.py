@@ -1,5 +1,6 @@
 import pytest
 
+from domain.common.errors import ValidationError
 from domain.space.board import Board, CoverLevel
 from domain.space.geometry import cover_between, distance_ft, line_of_sight
 from domain.space.square import Square
@@ -96,3 +97,16 @@ def test_partial_obstruction_upgrades_to_the_targets_flag() -> None:
         cover={Square(2, 2): CoverLevel.THREE_QUARTERS},
     )
     assert cover_between(board, Square(0, 0), Square(2, 2)) is (CoverLevel.THREE_QUARTERS)
+
+
+def test_two_diagonal_steps_cost_fifteen_by_default() -> None:
+    assert distance_ft(Square(0, 0), Square(2, 2)) == 15
+
+
+def test_the_5_5_5_variant_costs_five_per_diagonal() -> None:
+    assert distance_ft(Square(0, 0), Square(2, 2), diagonal_rule="5_5_5") == 10
+
+
+def test_unknown_diagonal_rule_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        distance_ft(Square(0, 0), Square(2, 2), diagonal_rule="3_3_3")

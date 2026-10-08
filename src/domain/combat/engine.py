@@ -82,8 +82,9 @@ def _assign_positions(
 
 
 class CombatEngine:
-    def __init__(self, dice: DiceRoller) -> None:
+    def __init__(self, dice: DiceRoller, diagonal_rule: str = "5_10_5") -> None:
         self._dice = dice
+        self._diagonal_rule = diagonal_rule
         self._checks = CheckResolver(dice)
 
     def start(
@@ -156,7 +157,10 @@ class CombatEngine:
             )
         actor_square = combat.positions[actor.id]
         target_square = combat.positions[target.id]
-        if distance_ft(actor_square, target_square) > weapon.range_ft:
+        if (
+            distance_ft(actor_square, target_square, diagonal_rule=self._diagonal_rule)
+            > weapon.range_ft
+        ):
             return ValidationResult.reject("target is out of range", "out_of_range")
         if not line_of_sight(board, actor_square, target_square):
             return ValidationResult.reject(

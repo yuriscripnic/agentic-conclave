@@ -29,7 +29,7 @@ def _service() -> GameService:
     return GameService(InMemoryGameRepository(event_store), event_store)
 
 
-def _fighter_command(name: str = "Arin") -> AddCharacterCommand:
+def _fighter_command(name: str = "Arin", range_ft: int = 5) -> AddCharacterCommand:
     return AddCharacterCommand(
         name=name,
         character_type="player",
@@ -49,11 +49,12 @@ def _fighter_command(name: str = "Arin") -> AddCharacterCommand:
             name="Longsword",
             damage_die_count=1,
             damage_die_size=8,
+            range_ft=range_ft,
         ),
     )
 
 
-def _goblin_command(name: str = "Goblin") -> AddCharacterCommand:
+def _goblin_command(name: str = "Goblin", range_ft: int = 5) -> AddCharacterCommand:
     return AddCharacterCommand(
         name=name,
         character_type="enemy",
@@ -72,6 +73,7 @@ def _goblin_command(name: str = "Goblin") -> AddCharacterCommand:
             name="Scimitar",
             damage_die_count=1,
             damage_die_size=6,
+            range_ft=range_ft,
         ),
     )
 
@@ -297,3 +299,83 @@ def test_start_combat_places_combatants_on_the_encounter_map() -> None:
     assert view.combat is not None
     assert view.combat.map is not None
     assert view.combat.map.positions, "combatants must start on spawn squares"
+
+
+class _FiveFiveRuleset:
+    """A Ruleset stub carrying only the diagonal rule the engine reads."""
+
+    ruleset_id = "test-5_5_5"
+    diagonal_rule = "5_5_5"
+
+    def weapon(self, weapon_id: str) -> object:
+        raise AssertionError("not used in this test")
+
+    def statblock(self, statblock_id: str) -> object:
+        raise AssertionError("not used in this test")
+
+    def character_class(self, class_id: str) -> object:
+        raise AssertionError("not used in this test")
+
+
+def _diagonal_service(*, ruleset: object) -> tuple[GameService, GameId]:
+    event_store = InMemoryEventRepository()
+    battle_map = BattleMap(
+        board=Board(width=10, height=10),
+        spawns=Spawns(party=(Square(0, 0),), enemies=(Square(2, 2),)),
+    )
+    service = GameService(
+        InMemoryGameRepository(event_store),
+        event_store,
+        battle_map=battle_map,
+        ruleset=ruleset,  # type: ignore[arg-type]
+    )
+    game_id = service.create_game(CreateGameCommand(seed=1))
+    service.add_character(game_id, _fighter_command(range_ft=10))
+    service.add_character(game_id, _goblin_command(range_ft=10))
+    return service, game_id
+
+
+def test_the_default_diagonal_rule_rejects_two_diagonal_steps() -> None:
+    service, game_id = _diagonal_service(ruleset=None)
+    view = service.start_combat(game_id)
+    assert view.combat is not None
+    actor_id = CharacterId(str(view.combat.active_actor_id))
+    view = service.get_view(game_id)
+    side = view.party if str(actor_id) in {m.id for m in view.party} else view.enemies
+    foes = view.enemies if side is view.party else view.party
+    target_id = CharacterId(foes[0].id)
+
+    report = service.submit_action(
+        SubmitActionCommand(
+            game_id=game_id,
+            actor_id=actor_id,
+            action_type="attack",
+            target_id=target_id,
+        )
+    )
+
+    assert report.accepted is False
+    assert any(e.event_type == "action_rejected" for e in report.events)
+
+
+def test_the_rulesets_diagonal_rule_reaches_grid_combat() -> None:
+    service, game_id = _diagonal_service(ruleset=_FiveFiveRuleset())
+    view = service.start_combat(game_id)
+    assert view.combat is not None
+    actor_id = CharacterId(str(view.combat.active_actor_id))
+    view = service.get_view(game_id)
+    side = view.party if str(actor_id) in {m.id for m in view.party} else view.enemies
+    foes = view.enemies if side is view.party else view.party
+    target_id = CharacterId(foes[0].id)
+
+    report = service.submit_action(
+        SubmitActionCommand(
+            game_id=game_id,
+            actor_id=actor_id,
+            action_type="attack",
+            target_id=target_id,
+        )
+    )
+
+    assert report.accepted is True
+    assert any(e.event_type == "attack_resolved" for e in report.events)
