@@ -1,0 +1,47 @@
+# Weapons in play, SRD 5.2 (CC-BY-4.0; see data/rules/NOTICE).
+# damage_type is recorded for R3/R9; the loader validates presence only.
+
+[[weapon]]
+weapon_id = "longsword"
+name = "Longsword"
+damage_die_count = 1
+damage_die_size = 8
+ability = "strength"
+damage_type = "slashing"
+range_ft = 5
+
+[[weapon]]
+weapon_id = "shortsword"
+name = "Shortsword"
+damage_die_count = 1
+damage_die_size = 6
+ability = "dexterity"
+damage_type = "piercing"
+range_ft = 5
+
+[[weapon]]
+weapon_id = "mace"
+name = "Mace"
+damage_die_count = 1
+damage_die_size = 6
+ability = "strength"
+damage_type = "bludgeoning"
+range_ft = 5
+
+[[weapon]]
+weapon_id = "scimitar"
+name = "Scimitar"
+damage_die_count = 1
+damage_die_size = 6
+ability = "dexterity"
+damage_type = "slashing"
+range_ft = 5
+
+[[weapon]]
+weapon_id = "greataxe"
+name = "Greataxe"
+damage_die_count = 1
+damage_die_size = 12
+ability = "strength"
+damage_type = "slashing"
+range_ft = 5

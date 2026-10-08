@@ -1,0 +1,46 @@
+# The MVP-0 enemies, byte-equivalent to config/encounter.toml before migration.
+
+[[statblock]]
+statblock_id = "goblin_scout"
+name = "Goblin Scout"
+level = 1
+strength = 8
+dexterity = 14
+constitution = 10
+intelligence = 10
+wisdom = 8
+charisma = 8
+armor_class = 13
+speed_ft = 30
+max_hp = 7
+weapon_id = "scimitar"
+
+[[statblock]]
+statblock_id = "goblin_skulker"
+name = "Goblin Skulker"
+level = 1
+strength = 8
+dexterity = 14
+constitution = 10
+intelligence = 10
+wisdom = 8
+charisma = 8
+armor_class = 13
+speed_ft = 30
+max_hp = 7
+weapon_id = "scimitar"
+
+[[statblock]]
+statblock_id = "orc_brute"
+name = "Orc Brute"
+level = 1
+strength = 16
+dexterity = 12
+constitution = 14
+intelligence = 7
+wisdom = 10
+charisma = 8
+armor_class = 15
+speed_ft = 30
+max_hp = 15
+weapon_id = "greataxe"

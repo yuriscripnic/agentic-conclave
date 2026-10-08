@@ -1,0 +1,21 @@
+# The four playable classes (SRD 5.2); features arrive at R8.
+
+[[class]]
+class_id = "fighter"
+name = "Fighter"
+hit_die_size = 10
+
+[[class]]
+class_id = "rogue"
+name = "Rogue"
+hit_die_size = 8
+
+[[class]]
+class_id = "wizard"
+name = "Wizard"
+hit_die_size = 6
+
+[[class]]
+class_id = "cleric"
+name = "Cleric"
+hit_die_size = 8

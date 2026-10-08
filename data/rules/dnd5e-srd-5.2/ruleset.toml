@@ -1,0 +1,8 @@
+# The active ruleset's identity and engine parameters (R2 spec §4).
+id = "dnd5e-srd-5.2"
+name = "Dungeons & Dragons 5e, System Reference Document 5.2"
+
+[grid]
+# 5-10-5: the first diagonal step costs 5 ft, the second 10, alternating.
+# The alternative SRD variant ("5_5_5") costs 5 ft per diagonal step.
+diagonal_rule = "5_10_5"
